@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PPT 四级大纲 Schema",
+  "description": "约束 LLM 大纲输出的结构格式",
+  "type": "object",
+  "required": ["topic", "chapters"],
+  "additionalProperties": false,
+  "properties": {
+    "topic": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "description": "PPT 总主题"
+    },
+    "chapters": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "description": "章节列表（第一级）",
+      "items": {
+        "type": "object",
+        "required": ["title", "slides"],
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "章节标题"
+          },
+          "slides": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "description": "页面列表（第二级）",
+            "items": {
+              "type": "object",
+              "required": ["title", "points"],
+              "additionalProperties": false,
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "description": "页面标题"
+                },
+                "points": {
+                  "type": "array",
+                  "minItems": 0,
+                  "maxItems": 10,
+                  "description": "核心要点列表（第三级）",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 200
+                  }
+                },
+                "notes": {
+                  "type": ["string", "null"],
+                  "maxLength": 1000,
+                  "description": "备注说明（第四级，可为空）"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

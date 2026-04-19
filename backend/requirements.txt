@@ -1,0 +1,56 @@
+# ── Web 框架
+fastapi
+uvicorn[standard]
+python-multipart
+
+# ── 配置管理
+pydantic
+pydantic-settings
+
+# ── 数据库（PostgreSQL）
+sqlalchemy
+asyncpg
+alembic
+psycopg2-binary
+pgvector
+
+# ── Redis
+redis
+
+# ── 鉴权
+python-jose[cryptography]
+bcrypt
+
+# ── HTTP 客户端
+httpx
+
+# ── AI / LLM
+openai
+langchain
+langchain-openai
+langchain-community
+langgraph
+
+# ── 向量存储
+llama-index
+llama-index-vector-stores-postgres
+
+# ── pgvector
+pgvector
+
+# ── 文件解析
+pdfplumber
+python-docx
+
+# ── 对象存储
+boto3
+
+# ── 搜索服务
+tavily-python
+
+# ── 工具
+python-dateutil
+
+# ── 开发 / 测试
+pytest
+pytest-asyncio
