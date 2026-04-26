@@ -144,3 +144,21 @@ class StatusCode(Enum):
     RAG_API_KEY_INVALID           = Status(8003, "RAG（阿里云 DashScope）API Key 无效")
     RAG_EMBEDDING_FAILED          = Status(8004, "文本向量化（Embedding）失败")
     RAG_EMBEDDING_TIMEOUT         = Status(8005, "向量化请求超时")
+
+    # ------------------------------------------------------------------ #
+    # 大纲 / 幻灯片模块 3xxx（补充）
+    # ------------------------------------------------------------------ #
+    OUTLINE_NOT_FOUND             = Status(3007, "大纲不存在")
+    OUTLINE_ALREADY_CONFIRMED     = Status(3008, "大纲已确认，不可重复确认")
+    SLIDE_NOT_FOUND               = Status(3009, "幻灯片内容不存在")
+    SLIDE_ALREADY_CONFIRMED       = Status(3010, "幻灯片内容已确认")
+    EXPORT_FAILED                 = Status(3011, "PPT 导出失败")
+    STAGE_MISMATCH                = Status(3012, "当前会话阶段不支持此操作")
+
+    # ------------------------------------------------------------------ #
+    # 任务模块 9xxx
+    # ------------------------------------------------------------------ #
+    TASK_NOT_FOUND                = Status(9001, "任务不存在")
+    TASK_NOT_CANCELLABLE          = Status(9002, "任务已完成或已取消，无法再次取消")
+    TASK_NOT_RETRYABLE            = Status(9003, "只有失败的任务可以重试")
+    TASK_ACCESS_DENIED            = Status(9004, "无权访问此任务")

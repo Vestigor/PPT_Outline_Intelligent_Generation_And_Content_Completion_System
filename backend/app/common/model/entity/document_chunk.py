@@ -15,7 +15,7 @@ class DocumentChunk(BaseEntity):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
     document_id: Mapped[int] = mapped_column(
-        ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("knowledge_files.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
     total_chunk: Mapped[int] = mapped_column(Integer, nullable=False)

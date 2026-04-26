@@ -18,7 +18,7 @@ class SessionKnowledgeRef(BaseEntity):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
     session_id: Mapped[int] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("ppt_sessions.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
     knowledge_file_id: Mapped[int] = mapped_column(

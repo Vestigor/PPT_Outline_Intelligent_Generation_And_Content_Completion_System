@@ -25,6 +25,16 @@ from app.modules.model.repository.model_repository import (
     UserSearchConfigRepository,
 )
 from app.modules.model.service.model_service import ModelService
+from app.modules.session.repository.session_repository import (
+    MessageRepository,
+    OutlineRepository,
+    ReportRepository,
+    SessionRepository,
+    SlideRepository,
+)
+from app.modules.session.service.session_service import SessionService
+from app.modules.task.repository.task_repository import TaskRepository
+from app.modules.task.service.task_service import TaskService
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/users/login")
 Token = Annotated[str, Depends(oauth2_scheme)]
@@ -87,7 +97,10 @@ async def get_session_knowledge_ref_repository(db: DBSession) -> SessionKnowledg
 
 SessionKnowledgeRefRepoDepend = Annotated[SessionKnowledgeRefRepository, Depends(get_session_knowledge_ref_repository)]
 
-async def get_knowledge_service(doc_repo: DocumentFileRepoDepend, ref_repo: SessionKnowledgeRefRepoDepend) -> KnowledgeBaseService:
+async def get_knowledge_service(
+    doc_repo: DocumentFileRepoDepend,
+    ref_repo: SessionKnowledgeRefRepoDepend,
+) -> KnowledgeBaseService:
     return KnowledgeBaseService(doc_repo, ref_repo)
 
 KnowledgeServiceDepend = Annotated[KnowledgeBaseService, Depends(get_knowledge_service)]
@@ -126,22 +139,90 @@ async def get_user_search_config_repository(db: DBSession) -> UserSearchConfigRe
     return UserSearchConfigRepository(db)
 
 UserSearchConfigRepoDepend = Annotated[UserSearchConfigRepository, Depends(get_user_search_config_repository)]
+
 async def get_model_service(
-        provider_repo = LLMProviderRepoDepend,
-        model_repo = LLMProviderModelRepoDepend,
-        user_llm_repo = UserLLMConfigRepoDepend,
-        rag_repo = UserRagConfigRepoDepend,
-        search_provider_repo = SearchProviderRepoDepend,
-        user_search_repo = UserSearchConfigRepoDepend,
+    provider_repo: LLMProviderRepoDepend,
+    model_repo: LLMProviderModelRepoDepend,
+    user_llm_repo: UserLLMConfigRepoDepend,
+    rag_repo: UserRagConfigRepoDepend,
+    search_provider_repo: SearchProviderRepoDepend,
+    user_search_repo: UserSearchConfigRepoDepend,
 ) -> ModelService:
-    
     return ModelService(
         provider_repo,
         model_repo,
         user_llm_repo,
         rag_repo,
         search_provider_repo,
-        user_search_repo
+        user_search_repo,
     )
 
 ModelServiceDepend = Annotated[ModelService, Depends(get_model_service)]
+
+
+# ──────────────────────────────────────────────
+# Session
+# ──────────────────────────────────────────────
+
+async def get_session_repository(db: DBSession) -> SessionRepository:
+    return SessionRepository(db)
+
+SessionRepoDepend = Annotated[SessionRepository, Depends(get_session_repository)]
+
+
+async def get_message_repository(db: DBSession) -> MessageRepository:
+    return MessageRepository(db)
+
+MessageRepoDepend = Annotated[MessageRepository, Depends(get_message_repository)]
+
+
+async def get_outline_repository(db: DBSession) -> OutlineRepository:
+    return OutlineRepository(db)
+
+OutlineRepoDepend = Annotated[OutlineRepository, Depends(get_outline_repository)]
+
+
+async def get_slide_repository(db: DBSession) -> SlideRepository:
+    return SlideRepository(db)
+
+SlideRepoDepend = Annotated[SlideRepository, Depends(get_slide_repository)]
+
+
+async def get_report_repository(db: DBSession) -> ReportRepository:
+    return ReportRepository(db)
+
+ReportRepoDepend = Annotated[ReportRepository, Depends(get_report_repository)]
+
+
+async def get_session_service(
+    session_repo: SessionRepoDepend,
+    message_repo: MessageRepoDepend,
+    outline_repo: OutlineRepoDepend,
+    slide_repo: SlideRepoDepend,
+    report_repo: ReportRepoDepend,
+) -> SessionService:
+    return SessionService(
+        session_repo=session_repo,
+        message_repo=message_repo,
+        outline_repo=outline_repo,
+        slide_repo=slide_repo,
+        report_repo=report_repo,
+    )
+
+SessionServiceDepend = Annotated[SessionService, Depends(get_session_service)]
+
+
+# ──────────────────────────────────────────────
+# Task
+# ──────────────────────────────────────────────
+
+async def get_task_repository(db: DBSession) -> TaskRepository:
+    return TaskRepository(db)
+
+TaskRepoDepend = Annotated[TaskRepository, Depends(get_task_repository)]
+
+
+async def get_task_service(task_repo: TaskRepoDepend) -> TaskService:
+    return TaskService(task_repo)
+
+TaskServiceDepend = Annotated[TaskService, Depends(get_task_service)]

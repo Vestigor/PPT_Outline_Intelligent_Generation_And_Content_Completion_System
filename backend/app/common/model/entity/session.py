@@ -30,7 +30,7 @@ class Session(BaseEntity):
     """
     PPT 创作会话。
     """
-    __tablename__ = "sessions"
+    __tablename__ = "ppt_sessions"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 

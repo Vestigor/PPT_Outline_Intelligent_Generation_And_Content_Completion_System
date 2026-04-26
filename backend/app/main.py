@@ -33,25 +33,34 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 验证 Redis 连接
     await redis_client.ping()
 
-    # 启动知识库文件处理 Worker
-    worker_task = asyncio.create_task(_start_knowledge_worker())
+    # 启动后台 Worker
+    knowledge_task = asyncio.create_task(_start_knowledge_worker())
+    task_task = asyncio.create_task(_start_task_worker())
 
     yield
 
     # 清理资源
-    worker_task.cancel()
-    try:
-        await worker_task
-    except asyncio.CancelledError:
-        pass
+    for t in (knowledge_task, task_task):
+        t.cancel()
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
 
     await engine.dispose()
     await redis_client.aclose()
 
 
 async def _start_knowledge_worker() -> None:
-    """启动知识库 Worker，持续消费 Redis Stream 中的文件处理任务。"""
-    pass
+    """启动知识库文档处理 Worker（解析 / 分块 / Embedding）。"""
+    from app.workers.knowledge_worker import KnowledgeWorker
+    await KnowledgeWorker().start()
+
+
+async def _start_task_worker() -> None:
+    """启动异步任务执行 Worker（大纲生成 / 幻灯片批量生成）。"""
+    from app.workers.task_worker import TaskWorker
+    await TaskWorker().start()
 
 
 _DESCRIPTION = """
