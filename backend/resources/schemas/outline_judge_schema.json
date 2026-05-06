@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "大纲确认意图判断 Schema",
+  "type": "object",
+  "required": ["intent", "modification_request", "reason"],
+  "additionalProperties": false,
+  "properties": {
+    "intent": {
+      "type": "string",
+      "enum": ["CONFIRM", "MODIFY", "IRRELEVANT"],
+      "description": "用户意图类型"
+    },
+    "modification_request": {
+      "type": ["string", "null"],
+      "description": "修改要求（intent=MODIFY 时非空）"
+    },
+    "reason": {
+      "type": "string",
+      "description": "判断依据说明"
+    }
+  }
+}

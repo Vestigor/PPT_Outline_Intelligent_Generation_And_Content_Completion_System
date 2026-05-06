@@ -3,7 +3,6 @@ from __future__ import annotations
 from pydantic import BaseModel, field_validator
 
 
-
 # ──────────────────────────────────────────────
 # 用户 LLM 配置
 # ──────────────────────────────────────────────
@@ -55,14 +54,11 @@ class UpdateUserRagConfigRequest(BaseModel):
 
 
 # ──────────────────────────────────────────────
-# 用户搜索配置
+# 用户搜索配置（固定 Tavily，每用户一条）
 # ──────────────────────────────────────────────
 
 class CreateUserSearchConfigRequest(BaseModel):
-    provider_id: int
     api_key: str
-    alias: str | None = None
-    is_default: bool = False
 
     @field_validator("api_key")
     @classmethod
@@ -73,9 +69,14 @@ class CreateUserSearchConfigRequest(BaseModel):
 
 
 class UpdateUserSearchConfigRequest(BaseModel):
-    api_key: str | None = None
-    alias: str | None = None
-    is_default: bool | None = None
+    api_key: str
+
+    @field_validator("api_key")
+    @classmethod
+    def api_key_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("api_key 不能为空")
+        return v
 
 
 # ──────────────────────────────────────────────
@@ -108,23 +109,5 @@ class CreateLLMProviderModelRequest(BaseModel):
 
 class UpdateLLMProviderModelRequest(BaseModel):
     model_name: str | None = None
-    description: str | None = None
-    is_active: bool | None = None
-
-
-# ──────────────────────────────────────────────
-# 管理员搜索服务提供商
-# ──────────────────────────────────────────────
-
-class CreateSearchProviderRequest(BaseModel):
-    name: str
-    api_endpoint: str | None = None
-    description: str | None = None
-    is_active: bool = True
-
-
-class UpdateSearchProviderRequest(BaseModel):
-    name: str | None = None
-    api_endpoint: str | None = None
     description: str | None = None
     is_active: bool | None = None

@@ -9,7 +9,7 @@ from app.common.model.entity.session import SessionStage, SessionType
 
 
 class StartSessionResponse(BaseModel):
-    """POST /sessions/start 的响应体（原子创建会话 + 处理首条消息）。"""
+    """POST /sessions/start 响应：原子创建会话 + 处理首条消息。"""
     session_id: int
     message_id: int
     seq_no: int = 0
@@ -19,7 +19,7 @@ class StartSessionResponse(BaseModel):
 
 
 class SendMessageResponse(BaseModel):
-    """POST /sessions/{session_id}/messages 的响应体。"""
+    """POST /sessions/{id}/messages 响应。"""
     session_id: int
     message_id: int
     seq_no: int
@@ -29,13 +29,14 @@ class SendMessageResponse(BaseModel):
 
 
 class MessageResponse(BaseModel):
-    """单条消息。"""
+    """单条消息，含可选结构化数据。"""
     id: int
     session_id: int
     role: MessageRole
     seq_no: int
     content: str | None
     outline_json: dict | None
+    slide_json: dict | None
     created_at: datetime
 
     class Config:
@@ -69,7 +70,7 @@ class SlideResponse(BaseModel):
 
 
 class SessionSummaryResponse(BaseModel):
-    """会话列表中的简要信息。"""
+    """会话列表摘要。"""
     id: int
     title: str
     session_type: SessionType
@@ -86,7 +87,7 @@ class SessionSummaryResponse(BaseModel):
 
 
 class SessionDetailResponse(BaseModel):
-    """GET /sessions/{session_id} 的详情响应体。"""
+    """GET /sessions/{id} 详情。"""
     id: int
     user_id: int
     title: str
@@ -98,7 +99,6 @@ class SessionDetailResponse(BaseModel):
     deep_search_enabled: bool
     message_count: int
     current_user_llm_config_id: int | None
-    current_user_search_config_id: int | None
     created_at: datetime
     updated_at: datetime
 
@@ -107,7 +107,7 @@ class SessionDetailResponse(BaseModel):
 
 
 class SessionListResponse(BaseModel):
-    """GET /sessions 的分页响应体。"""
+    """GET /sessions 分页响应。"""
     items: list[SessionSummaryResponse]
     total: int
     page: int

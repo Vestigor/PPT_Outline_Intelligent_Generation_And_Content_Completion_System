@@ -15,20 +15,26 @@ class UserRepository:
         self._db = db
 
     async def find_by_id(self, user_id: int) -> Optional[User]:
-        result = await self._db.execute(
-            select(User).where(User.id == user_id)
-        )
+        result = await self._db.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()
 
     async def find_by_username(self, username: str) -> Optional[User]:
+        result = await self._db.execute(select(User).where(User.username == username))
+        return result.scalar_one_or_none()
+
+    async def find_by_email(self, email: str) -> Optional[User]:
         result = await self._db.execute(
-            select(User).where(User.username == username)
+            select(User).where(func.lower(User.email) == email.lower())
         )
         return result.scalar_one_or_none()
 
     async def exists_by_username(self, username: str) -> bool:
+        result = await self._db.execute(select(User.id).where(User.username == username))
+        return result.scalar_one_or_none() is not None
+
+    async def exists_by_email(self, email: str) -> bool:
         result = await self._db.execute(
-            select(User.id).where(User.username == username)
+            select(User.id).where(func.lower(User.email) == email.lower())
         )
         return result.scalar_one_or_none() is not None
 
@@ -37,8 +43,16 @@ class UserRepository:
         username: str,
         password_hash: str,
         role: UserRole = UserRole.USER,
+        email: str | None = None,
+        is_email_verified: bool = False,
     ) -> User:
-        user = User(username=username, password_hash=password_hash, role=role)
+        user = User(
+            username=username,
+            password_hash=password_hash,
+            role=role,
+            email=email,
+            is_email_verified=is_email_verified,
+        )
         self._db.add(user)
         await self._db.flush()
         await self._db.refresh(user)
@@ -50,6 +64,15 @@ class UserRepository:
             user.password_hash = new_password_hash
             await self._db.flush()
 
+    async def update_email(
+        self, user_id: int, email: str | None, is_email_verified: bool
+    ) -> None:
+        user = await self.find_by_id(user_id)
+        if user is not None:
+            user.email = email
+            user.is_email_verified = is_email_verified
+            await self._db.flush()
+
     async def set_status(self, user_id: int, is_active: bool) -> None:
         user = await self.find_by_id(user_id)
         if user is not None:
@@ -57,9 +80,7 @@ class UserRepository:
             await self._db.flush()
 
     async def delete_by_id(self, user_id: int) -> bool:
-        result = await self._db.execute(
-            delete(User).where(User.id == user_id)
-        )
+        result = await self._db.execute(delete(User).where(User.id == user_id))
         return result.rowcount > 0
 
     async def find_page(
@@ -68,7 +89,6 @@ class UserRepository:
         page_size: int,
         username_like: Optional[str] = None,
     ) -> list[User]:
-        """分页查询用户列表，支持按用户名模糊过滤。"""
         stmt = select(User).order_by(User.id)
         if username_like:
             stmt = stmt.where(User.username.ilike(f"%{username_like}%"))
@@ -77,7 +97,6 @@ class UserRepository:
         return list(result.scalars().all())
 
     async def count(self, username_like: Optional[str] = None) -> int:
-        """统计用户总数，支持按用户名模糊过滤。"""
         stmt = select(func.count(User.id))
         if username_like:
             stmt = stmt.where(User.username.ilike(f"%{username_like}%"))

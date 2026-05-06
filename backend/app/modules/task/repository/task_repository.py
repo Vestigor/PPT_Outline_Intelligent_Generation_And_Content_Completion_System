@@ -18,6 +18,14 @@ class TaskRepository:
         )
         return result.scalar_one_or_none()
 
+    async def find_by_id_and_session(
+        self, task_id: int, session_id: int
+    ) -> Optional[Task]:
+        result = await self._db.execute(
+            select(Task).where(Task.id == task_id, Task.session_id == session_id)
+        )
+        return result.scalar_one_or_none()
+
     async def find_by_session(self, session_id: int) -> list[Task]:
         result = await self._db.execute(
             select(Task)
@@ -35,16 +43,33 @@ class TaskRepository:
         )
         return list(result.scalars().all())
 
+    async def find_latest_by_session(self, session_id: int) -> Optional[Task]:
+        result = await self._db.execute(
+            select(Task)
+            .where(Task.session_id == session_id)
+            .order_by(Task.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def create(
         self,
         session_id: int,
         task_type: TaskType,
+        trigger_message_id: int | None = None,
+        snapshot_llm_config_id: int | None = None,
+        snapshot_rag_enabled: bool = False,
+        snapshot_deep_search_enabled: bool = False,
     ) -> Task:
         task = Task(
             session_id=session_id,
             type=task_type,
             status=TaskStatus.PENDING,
+            trigger_message_id=trigger_message_id,
             retry_count=0,
+            snapshot_llm_config_id=snapshot_llm_config_id,
+            snapshot_rag_enabled=snapshot_rag_enabled,
+            snapshot_deep_search_enabled=snapshot_deep_search_enabled,
         )
         self._db.add(task)
         await self._db.flush()

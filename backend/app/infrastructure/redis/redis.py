@@ -10,10 +10,10 @@ from app.config import settings
 
 redis_client: aioredis.Redis = aioredis.from_url(
     settings.REDIS_URL,
-    encoding="utf-8",
-    decode_responses=True,
-    max_connections=10,
-    health_check_interval=30,
+    encoding=settings.REDIS_ENCODING,
+    decode_responses=settings.REDIS_DECODE_RESPONSES,
+    max_connections=settings.REDIS_MAX_CONNECTIONS,
+    health_check_interval=settings.REDIS_HEALTH_CHECK_INTERVAL,
 )
 
 
@@ -170,7 +170,7 @@ class RedisHelper:
         block: int = 5000,
     ) -> list[tuple[str, dict[str, Any]]]:
         """
-        消费消息
+        消费消息。block 时间到后没有数据时 redis-py 返回 None，需做防御处理。
         """
         result = await self._client.xreadgroup(
             groupname=group,
@@ -181,10 +181,12 @@ class RedisHelper:
         )
 
         messages: list[tuple[str, dict[str, Any]]] = []
+        if not result:
+            return messages
 
         for _, msgs in result:
             for msg_id, data in msgs:
-                parsed = {k: self._deserialize(v) for k, v in data.items()}
+                parsed = {k: self._deserialize(v) for k, v in (data or {}).items()}
                 messages.append((msg_id, parsed))
 
         return messages

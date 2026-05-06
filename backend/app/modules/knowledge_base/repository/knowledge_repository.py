@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.model.entity.document import DocumentFile, DocumentStatus
@@ -81,6 +81,40 @@ class DocumentFileRepository:
             doc.status = status
             doc.error_message = error_message
             await self._db.flush()
+            await self._db.refresh(doc)
+
+    async def rename_category(self, user_id: int, old_category: str, new_category: str) -> int:
+        result = await self._db.execute(
+            update(DocumentFile)
+            .where(DocumentFile.user_id == user_id, DocumentFile.category == old_category)
+            .values(category=new_category)
+        )
+        return result.rowcount
+
+    async def category_exists(self, user_id: int, category: str) -> bool:
+        result = await self._db.execute(
+            select(DocumentFile.id)
+            .where(DocumentFile.user_id == user_id, DocumentFile.category == category)
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def find_names_by_ids(self, file_ids: list[int]) -> dict[int, str]:
+        if not file_ids:
+            return {}
+        result = await self._db.execute(
+            select(DocumentFile.id, DocumentFile.file_name).where(DocumentFile.id.in_(file_ids))
+        )
+        return {row.id: row.file_name for row in result.all()}
+
+    async def update_category(self, file_id: int, user_id: int, new_category: str) -> Optional[DocumentFile]:
+        doc = await self.find_by_id_and_user(file_id, user_id)
+        if doc is None:
+            return None
+        doc.category = new_category
+        await self._db.flush()
+        await self._db.refresh(doc)
+        return doc
 
     async def delete_by_id_and_user(self, file_id: int, user_id: int) -> bool:
         result = await self._db.execute(

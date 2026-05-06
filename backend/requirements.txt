@@ -4,7 +4,7 @@ uvicorn[standard]
 python-multipart
 
 # ── 配置管理
-pydantic
+pydantic[email]
 pydantic-settings
 
 # ── 数据库（PostgreSQL）
@@ -44,6 +44,7 @@ python-docx
 
 # ── 对象存储
 boto3
+aioboto3
 
 # ── 搜索服务
 tavily-python
@@ -54,3 +55,6 @@ python-dateutil
 # ── 开发 / 测试
 pytest
 pytest-asyncio
+
+# embedding
+dashscope

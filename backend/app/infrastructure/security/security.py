@@ -12,8 +12,10 @@ from jose import ExpiredSignatureError, JWTError, jwt
 from app.config import settings
 from app.common.exception.code import StatusCode
 from app.common.exception.exception import AuthException
+from app.infrastructure.log.logging_config import get_logger
 from app.infrastructure.redis.redis import redis_helper
 
+logger = get_logger(__name__)
 
 def hash_password(plain: str) -> str:
     salt = bcrypt.gensalt()
@@ -67,19 +69,23 @@ async def decode_access_token(token: str) -> dict[str, Any]:
         )
 
         if payload.get("type") != "access":
+            logger.error("Invalid JWT type")
             raise AuthException.exc(StatusCode.INVALID_JWT_TYPE.value)
 
         if not payload.get("sub") and not payload.get("jti"):
+            logger.error("Invalid JWT")
             raise AuthException.exc(StatusCode.INVALID_JWT.value)
 
         if await tokenInBlacklist(token):
+            logger.error("JWT blacklisted")
             raise AuthException.exc(StatusCode.JWT_BLACKLISTED.value)
-
+        
         return payload
 
     except ExpiredSignatureError:
         raise AuthException.exc(StatusCode.JWT_EXPIRED.value)
-    except JWTError:
+    except JWTError as e:
+        logger.warning("JWT decode failed: %s", e)
         raise AuthException.exc(StatusCode.INVALID_JWT.value)
 
 
@@ -104,7 +110,8 @@ async def decode_refresh_token(token: str) -> dict[str, Any]:
 
     except ExpiredSignatureError:
         raise AuthException.exc(StatusCode.JWT_EXPIRED.value)
-    except JWTError:
+    except JWTError as e:
+        logger.warning("Refresh JWT decode failed: %s", e)
         raise AuthException.exc(StatusCode.INVALID_JWT.value)
 
 

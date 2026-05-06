@@ -7,6 +7,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.user_context.user_context import UserContext
+from app.infrastructure.log.logging_config import get_logger
 from app.infrastructure.security.security import decode_access_token
 from app.infrastructure.database.postgre_sql import AsyncSessionLocal
 from app.modules.user.repository.user_repository import UserRepository
@@ -21,7 +22,6 @@ from app.modules.model.repository.model_repository import (
     LLMProviderModelRepository,
     UserLLMConfigRepository,
     UserRagConfigRepository,
-    SearchProviderRepository,
     UserSearchConfigRepository,
 )
 from app.modules.model.service.model_service import ModelService
@@ -38,6 +38,7 @@ from app.modules.task.service.task_service import TaskService
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/users/login")
 Token = Annotated[str, Depends(oauth2_scheme)]
+logger = get_logger(__name__)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -75,6 +76,7 @@ async def get_current_user(token: Token):
         payload = await decode_access_token(token)
         return UserContext.from_payload(payload)
     except ValueError as e:
+        logger.error(e)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
@@ -130,11 +132,6 @@ async def get_user_rag_config_repository(db: DBSession) -> UserRagConfigReposito
 
 UserRagConfigRepoDepend = Annotated[UserRagConfigRepository, Depends(get_user_rag_config_repository)]
 
-async def get_search_provider_repository(db: DBSession) -> SearchProviderRepository:
-    return SearchProviderRepository(db)
-
-SearchProviderRepoDepend = Annotated[SearchProviderRepository, Depends(get_search_provider_repository)]
-
 async def get_user_search_config_repository(db: DBSession) -> UserSearchConfigRepository:
     return UserSearchConfigRepository(db)
 
@@ -145,7 +142,6 @@ async def get_model_service(
     model_repo: LLMProviderModelRepoDepend,
     user_llm_repo: UserLLMConfigRepoDepend,
     rag_repo: UserRagConfigRepoDepend,
-    search_provider_repo: SearchProviderRepoDepend,
     user_search_repo: UserSearchConfigRepoDepend,
 ) -> ModelService:
     return ModelService(
@@ -153,7 +149,6 @@ async def get_model_service(
         model_repo,
         user_llm_repo,
         rag_repo,
-        search_provider_repo,
         user_search_repo,
     )
 
@@ -200,6 +195,7 @@ async def get_session_service(
     outline_repo: OutlineRepoDepend,
     slide_repo: SlideRepoDepend,
     report_repo: ReportRepoDepend,
+    task_repo: TaskRepoDepend,
 ) -> SessionService:
     return SessionService(
         session_repo=session_repo,
@@ -207,6 +203,7 @@ async def get_session_service(
         outline_repo=outline_repo,
         slide_repo=slide_repo,
         report_repo=report_repo,
+        task_repo=task_repo,
     )
 
 SessionServiceDepend = Annotated[SessionService, Depends(get_session_service)]

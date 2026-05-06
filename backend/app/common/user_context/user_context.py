@@ -8,7 +8,7 @@ class UserContext(BaseModel):
     @classmethod
     def from_payload(cls, payload: dict):
         return cls(
-            id=payload["sub"],
+            id=int(payload["sub"]),   # sub is stored as string per JWT spec
             username=payload["username"],
             role=payload["role"],
         )

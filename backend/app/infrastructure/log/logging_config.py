@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Any
 
 from app.config import settings
 
+_initialized = False
+
 
 def setup_logging() -> None:
-    """配置根日志记录器，使用结构化格式。"""
+    """配置根日志记录器。幂等：多次调用只生效一次。"""
+    global _initialized
+    if _initialized:
+        return
+    _initialized = True
+
     level = logging.DEBUG if settings.DEBUG else logging.INFO
 
     fmt = "[%(asctime)s] %(levelname)-8s %(name)s — %(message)s"
@@ -22,9 +28,15 @@ def setup_logging() -> None:
     root.handlers.clear()
     root.addHandler(handler)
 
-    # Suppress noisy third-party loggers
-    for noisy in ("sqlalchemy.engine", "httpcore", "httpx"):
+    # 压制高频第三方日志
+    for noisy in ("sqlalchemy.engine", "httpcore", "httpx", "uvicorn.access",
+                  "dashscope", "openai", "urllib3",
+                  "pdfminer", "pdfplumber"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+# 模块导入时立即初始化，确保任何地方的 get_logger() 都能生效
+setup_logging()
 
 
 def get_logger(name: str) -> logging.Logger:

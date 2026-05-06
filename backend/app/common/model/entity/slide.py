@@ -14,7 +14,7 @@ class Slide(BaseEntity):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
     session_id: Mapped[int] = mapped_column(
-        ForeignKey("ppt_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
     )
     
     # 每个会话内单调递增的版本号（1, 2, 3, …）

@@ -5,16 +5,16 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.model.base_entity.base_entity import BaseEntity
 
-# 固定常量：阿里云 DashScope text-embedding-v3
+# 固定常量：阿里云 DashScope text-embedding-v4
 _ALIBABA_RAG_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-_ALIBABA_RAG_MODEL: str    = "text-embedding-v3"
+_ALIBABA_RAG_MODEL: str    = "text-embedding-v4"
 
 
 class UserRagConfig(BaseEntity):
     """
     用户的 RAG Embedding 配置。
 
-    Embedding 提供商和模型固定为阿里云 DashScope text-embedding-v3，
+    Embedding 提供商和模型固定为阿里云 DashScope text-embedding-v4，
     """
     __tablename__ = "user_rag_configs"
 
@@ -40,7 +40,7 @@ class UserRagConfig(BaseEntity):
 
     @property
     def model(self) -> str:
-        """固定使用 text-embedding-v3。"""
+        """固定使用 text-embedding-v4。"""
         return _ALIBABA_RAG_MODEL
 
     def __repr__(self) -> str:

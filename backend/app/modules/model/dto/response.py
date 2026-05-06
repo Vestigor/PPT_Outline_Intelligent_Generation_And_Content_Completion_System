@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 
 # ══════════════════════════════════════════════
-# 浏览可用提供商 / 搜索服务
+# 浏览可用提供商
 # ══════════════════════════════════════════════
 
 class UserLLMModelBrowseResponse(BaseModel):
@@ -22,14 +22,6 @@ class UserLLMProviderBrowseResponse(BaseModel):
     name: str
     description: str | None
     models: list[UserLLMModelBrowseResponse]
-    created_at: datetime
-    updated_at: datetime
-
-
-class UserSearchProviderBrowseResponse(BaseModel):
-    id: int
-    name: str
-    description: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -51,12 +43,9 @@ class UserLLMConfigResponse(BaseModel):
 
 
 class UserSearchConfigResponse(BaseModel):
+    """用户的 Tavily 搜索配置（固定单条，无 alias/is_default）。"""
     id: int
-    provider_id: int
-    provider_name: str
-    alias: str | None
-    is_default: bool
-    is_active: bool
+    provider: str
     created_at: datetime
     updated_at: datetime
 
@@ -108,16 +97,12 @@ class AdminLLMProviderResponse(BaseModel):
 
 
 # ══════════════════════════════════════════════
-# 管理员端，搜索服务提供商
+# 会话创建前默认配置预览
 # ══════════════════════════════════════════════
 
-class AdminSearchProviderResponse(BaseModel):
-    model_config = {"from_attributes": True}
-
-    id: int
-    name: str
-    api_endpoint: str | None
-    description: str | None
-    is_active: bool
-    created_at: datetime
-    updated_at: datetime
+class UserDefaultsResponse(BaseModel):
+    """前端在创建会话前调用，展示用户当前默认配置，不触发任何 DB 写操作。"""
+    default_llm_config: UserLLMConfigResponse | None
+    search_config: UserSearchConfigResponse | None
+    rag_enabled: bool = False
+    deep_search_enabled: bool = False

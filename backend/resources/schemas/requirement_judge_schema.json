@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "需求判断结果 Schema",
+  "type": "object",
+  "required": ["extracted", "user_wants_to_proceed", "is_complete", "reply"],
+  "additionalProperties": false,
+  "properties": {
+    "extracted": {
+      "type": "object",
+      "description": "从用户消息中提取的需求字段（仅本轮新提供或更新的，未变化的字段必须返回 null）",
+      "required": ["topic", "audience", "duration_minutes", "style", "focus_points"],
+      "additionalProperties": false,
+      "properties": {
+        "topic": { "type": ["string", "null"], "description": "PPT 主题（核心内容/方向）" },
+        "audience": { "type": ["string", "null"], "description": "目标受众" },
+        "duration_minutes": { "type": ["integer", "null"], "description": "演示时长（整数分钟）" },
+        "style": { "type": ["string", "null"], "description": "风格偏好（如学术/商务/活泼等）" },
+        "focus_points": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "重点关注内容（数组）"
+        }
+      }
+    },
+    "user_wants_to_proceed": {
+      "type": "boolean",
+      "description": "用户当前消息是否在明确要求进入下一步（如\"开始生成\"、\"可以了\"、\"下一步\"、\"就这样\"、\"OK\"等）。仅在用户语气明确表达继续/确认时为 true；普通信息补充返回 false。"
+    },
+    "is_complete": {
+      "type": "boolean",
+      "description": "需求是否已可进入大纲生成阶段。判断规则见 prompt。"
+    },
+    "reply": {
+      "type": "string",
+      "description": "面向用户的自然语言回复，简短友好"
+    }
+  }
+}

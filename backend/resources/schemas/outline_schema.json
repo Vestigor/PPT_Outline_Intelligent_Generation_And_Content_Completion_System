@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "PPT 四级大纲 Schema",
-  "description": "约束 LLM 大纲输出的结构格式",
+  "title": "PPT 叙事大纲 Schema",
+  "description": "PPT 叙事骨架。每页只描述方向意图与必须覆盖的关键要素，不写最终展示文案——展示文案由 slide_generate 阶段生成。",
   "type": "object",
   "required": ["topic", "chapters"],
   "additionalProperties": false,
@@ -16,10 +16,10 @@
       "type": "array",
       "minItems": 1,
       "maxItems": 10,
-      "description": "章节列表（第一级）",
+      "description": "章节列表",
       "items": {
         "type": "object",
-        "required": ["title", "slides"],
+        "required": ["title", "summary", "slides"],
         "additionalProperties": false,
         "properties": {
           "title": {
@@ -28,36 +28,50 @@
             "maxLength": 256,
             "description": "章节标题"
           },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "本章核心论点或要回答的问题，1 句话"
+          },
           "slides": {
             "type": "array",
             "minItems": 1,
             "maxItems": 20,
-            "description": "页面列表（第二级）",
+            "description": "页列表",
             "items": {
               "type": "object",
-              "required": ["title", "points"],
+              "required": ["title", "slide_intent", "must_cover", "expected_takeaway"],
               "additionalProperties": false,
               "properties": {
                 "title": {
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 256,
-                  "description": "页面标题"
+                  "description": "幻灯片标题"
                 },
-                "points": {
+                "slide_intent": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "description": "1 句话说清楚本页要让观众理解什么、为什么需要它"
+                },
+                "must_cover": {
                   "type": "array",
-                  "minItems": 0,
-                  "maxItems": 10,
-                  "description": "核心要点列表（第三级）",
+                  "minItems": 2,
+                  "maxItems": 8,
+                  "description": "本页必须覆盖的关键概念/数据/年份/人物/案例（短语形式，每条 ≤ 30 字）。这是 slide_generate 阶段必须落地到正文的硬约束。",
                   "items": {
                     "type": "string",
-                    "maxLength": 200
+                    "minLength": 1,
+                    "maxLength": 30
                   }
                 },
-                "notes": {
-                  "type": ["string", "null"],
-                  "maxLength": 1000,
-                  "description": "备注说明（第四级，可为空）"
+                "expected_takeaway": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "description": "观众听完本页应记住的 1 句话核心结论"
                 }
               }
             }

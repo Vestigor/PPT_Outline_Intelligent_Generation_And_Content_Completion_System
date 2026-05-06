@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
+
+_existing = os.environ.get("NO_PROXY", os.environ.get("no_proxy", ""))
+_local = "localhost,127.0.0.1,::1"
+if not any(h in _existing for h in ("localhost", "127.0.0.1")):
+    _merged = f"{_existing},{_local}".lstrip(",")
+    os.environ["NO_PROXY"] = _merged
+    os.environ["no_proxy"] = _merged
 from typing import AsyncIterator
 
 from fastapi import FastAPI
@@ -17,30 +25,35 @@ from app.common.exception.handlers import register_exception_handlers
 from app.common.model.base_entity.base_entity import BaseEntity
 from app.infrastructure.database.postgre_sql import postgres_engine as engine
 from app.infrastructure.log.logging_config import setup_logging
+from app.infrastructure.middleware import (
+    AccessLogMiddleware,
+    RequestIDMiddleware,
+    SecurityHeadersMiddleware,
+)
 from app.infrastructure.redis.redis import redis_client
 from app.config import settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """应用程序启动和关闭生命周期管理。"""
     setup_logging()
 
-    # 创建所有数据库表（开发环境；生产环境请使用 Alembic 管理迁移）
+    # 开发环境自动建表；生产环境请改用 Alembic 管理迁移
     async with engine.begin() as conn:
         await conn.run_sync(BaseEntity.metadata.create_all)
 
-    # 验证 Redis 连接
     await redis_client.ping()
 
-    # 启动后台 Worker
+    # 恢复因进程崩溃或 Redis 连接失败而滞留在 DB 中的任务
+    await _recover_pending_tasks(startup=True)
+
     knowledge_task = asyncio.create_task(_start_knowledge_worker())
     task_task = asyncio.create_task(_start_task_worker())
+    recovery_task = asyncio.create_task(_periodic_task_recovery())
 
     yield
 
-    # 清理资源
-    for t in (knowledge_task, task_task):
+    for t in (knowledge_task, task_task, recovery_task):
         t.cancel()
         try:
             await t
@@ -51,14 +64,106 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await redis_client.aclose()
 
 
+async def _recover_pending_tasks(*, startup: bool = False) -> None:
+    """
+    DB → Redis Stream 任务恢复。
+
+    两种触发模式：
+      - 启动恢复（startup=True）：将 RUNNING/STREAMING（之前进程崩溃留下的）一律重置为 PENDING
+        再重推；PENDING 任务也立即重推。
+      - 周期恢复（startup=False）：仅重推「在 PENDING 状态停留过久」的任务，
+        以及 RUNNING/STREAMING 超时（≥ Worker 单任务超时）的僵尸任务。
+
+    幂等保证：Worker 端用 DB 原子 UPDATE WHERE status=PENDING 切换状态，
+    重复消息只会被一个 Worker 处理。
+    """
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import select, update as sa_update
+    from app.infrastructure.database.postgre_sql import AsyncSessionLocal
+    from app.common.model.entity.task import Task, TaskStatus
+    from app.infrastructure.log.logging_config import get_logger
+
+    _logger = get_logger(__name__)
+    TASK_STREAM_KEY = "tasks:pending"
+
+    # 比 TaskWorker.PER_TASK_TIMEOUT_SECONDS（600s）略大，
+    # 确保正常超时由 Worker 自身处理（标记 FAILED），只接管真正崩溃残留的 RUNNING/STREAMING 任务
+    RUNNING_TIMEOUT_SECONDS = 900
+    PENDING_RECOVERY_LAG_SECONDS = 0 if startup else 60
+
+    try:
+        async with AsyncSessionLocal() as db:
+            now = datetime.now(timezone.utc)
+            pending_cutoff = now - timedelta(seconds=PENDING_RECOVERY_LAG_SECONDS)
+            running_cutoff = now - timedelta(seconds=RUNNING_TIMEOUT_SECONDS)
+
+            # 1) 重置僵尸 RUNNING/STREAMING（启动模式无视时长，周期模式只挑超时的）
+            if startup:
+                stmt = sa_update(Task).where(
+                    Task.status.in_([TaskStatus.RUNNING, TaskStatus.STREAMING])
+                ).values(status=TaskStatus.PENDING)
+            else:
+                stmt = sa_update(Task).where(
+                    Task.status.in_([TaskStatus.RUNNING, TaskStatus.STREAMING]),
+                    Task.updated_at < running_cutoff,
+                ).values(status=TaskStatus.PENDING)
+            reset_result = await db.execute(stmt)
+            reset_count = reset_result.rowcount or 0
+            if reset_count:
+                _logger.warning(
+                    "Reset %d stuck RUNNING/STREAMING task(s) → PENDING (startup=%s)",
+                    reset_count, startup,
+                )
+
+            # 2) 抽取需重推的 PENDING 任务
+            result = await db.execute(
+                select(Task).where(
+                    Task.status == TaskStatus.PENDING,
+                    Task.updated_at <= pending_cutoff,
+                )
+            )
+            stuck_tasks = list(result.scalars().all())
+            await db.commit()
+
+            if not stuck_tasks:
+                return
+
+            _logger.info(
+                "Re-enqueueing %d PENDING task(s) (startup=%s)", len(stuck_tasks), startup
+            )
+
+            for task in stuck_tasks:
+                payload: dict = {
+                    "task_id": str(task.id),
+                    "session_id": str(task.session_id),
+                    "task_type": task.type.value,
+                }
+                if task.trigger_message_id:
+                    payload["trigger_message_id"] = str(task.trigger_message_id)
+
+                try:
+                    await redis_client.xadd(TASK_STREAM_KEY, payload, maxlen=1000)
+                except Exception as e:
+                    _logger.warning("Re-enqueue failed for task %d: %s", task.id, e)
+
+    except Exception as e:
+        from app.infrastructure.log.logging_config import get_logger as _gl
+        _gl(__name__).error("Task recovery failed: %s", e, exc_info=True)
+
+
+async def _periodic_task_recovery() -> None:
+    """每 60 秒扫描一次 DB，恢复积压或僵尸任务。"""
+    while True:
+        await asyncio.sleep(60)
+        await _recover_pending_tasks(startup=False)
+
+
 async def _start_knowledge_worker() -> None:
-    """启动知识库文档处理 Worker（解析 / 分块 / Embedding）。"""
     from app.workers.knowledge_worker import KnowledgeWorker
     await KnowledgeWorker().start()
 
 
 async def _start_task_worker() -> None:
-    """启动异步任务执行 Worker（大纲生成 / 幻灯片批量生成）。"""
     from app.workers.task_worker import TaskWorker
     await TaskWorker().start()
 
@@ -110,7 +215,7 @@ SSE 流式接口通过 `?token=<access_token>` URL 参数传递令牌。
 _TAGS_METADATA = [
     {
         "name": "用户管理",
-        "description": "用户注册、登录、退出及账号信息管理。注册时选择的 LLM 服务商不可更改。",
+        "description": "用户注册、登录、退出及账号信息管理。",
     },
     {
         "name": "会话管理",
@@ -123,15 +228,18 @@ _TAGS_METADATA = [
     },
     {
         "name": "任务管理",
-        "description": "查询异步任务状态并通过 SSE 订阅流式输出。大纲生成、内容生成等耗时操作均为异步任务。",
+        "description": "查询异步任务状态并通过 SSE 订阅流式输出。",
     },
     {
         "name": "知识库管理",
         "description": (
             "用户知识库文件的上传、管理和会话引用。\n\n"
-            "文件上传后异步完成文本提取和向量化，状态流转：`pending → processing → ready`。\n"
-            "只有 `ready` 状态的文件才会被 RAG 检索使用。"
+            "文件上传后异步完成文本提取和向量化，状态流转：`pending → processing → ready`。"
         ),
+    },
+    {
+        "name": "模型管理",
+        "description": "LLM 提供商、模型及用户配置管理（含管理员操作）。",
     },
 ]
 
@@ -146,15 +254,11 @@ def create_app() -> FastAPI:
         redoc_url="/api/redoc",
         openapi_url="/api/openapi.json",
         lifespan=lifespan,
-        contact={
-            "name": "同济大学 × 合合信息",
-        },
-        license_info={
-            "name": "仅供课程展示使用",
-        },
+        contact={"name": "同济大学 × 合合信息"},
+        license_info={"name": "仅供课程展示使用"},
     )
 
-    # 自定义 OpenAPI schema（注入 Bearer 安全方案）
+    # ── 自定义 OpenAPI schema（注入 Bearer 安全方案）────────────────────────
     def custom_openapi():
         if app.openapi_schema:
             return app.openapi_schema
@@ -165,8 +269,7 @@ def create_app() -> FastAPI:
             tags=_TAGS_METADATA,
             routes=app.routes,
         )
-        # 注入 Bearer Token 安全方案
-        schema["components"] = schema.get("components", {})
+        schema.setdefault("components", {})
         schema["components"]["securitySchemes"] = {
             "BearerAuth": {
                 "type": "http",
@@ -175,7 +278,6 @@ def create_app() -> FastAPI:
                 "description": "登录后获取的 access_token，格式：`Bearer <token>`",
             }
         }
-        # 为所有路径添加安全要求
         for path, path_item in schema.get("paths", {}).items():
             if path in ("/api/users/login", "/api/users/register"):
                 continue
@@ -187,24 +289,31 @@ def create_app() -> FastAPI:
 
     app.openapi = custom_openapi  # type: ignore[method-assign]
 
-    # 跨域中间件
+    # ── 中间件（注册顺序 = 洋葱模型外→内，即最后注册的最先执行）──────────
+    # 1. SecurityHeaders  — 最外层，为所有响应添加安全头
+    app.add_middleware(SecurityHeadersMiddleware)
+    # 2. GZip 压缩
+    app.add_middleware(GZipMiddleware, minimum_size=settings.GZIP_MINIMUM_SIZE)
+    # 3. AccessLog  — 在 RequestID 之后执行，可以读取 request_id
+    app.add_middleware(AccessLogMiddleware)
+    # 4. RequestID  — 最先执行，为后续中间件提供 request_id
+    app.add_middleware(RequestIDMiddleware)
+    # 5. CORS  — 标准跨域处理
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.ALLOWED_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Request-ID"],
     )
-    # Gzip 压缩
-    app.add_middleware(GZipMiddleware, minimum_size=1024)
 
-    # 注册全局异常处理器
+    # ── 全局异常处理器 ────────────────────────────────────────────────────────
     register_exception_handlers(app)
 
-    # 注册路由
+    # ── 路由 ──────────────────────────────────────────────────────────────────
     app.include_router(api_router, prefix="/api")
 
-    # 健康检查
     @app.get("/health", tags=["系统"], summary="健康检查", include_in_schema=True)
     async def health_check():
         return {"status": "ok", "version": settings.APP_VERSION}

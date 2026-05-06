@@ -27,7 +27,7 @@ class DocumentChunk(BaseEntity):
     # 向量数据
     embedding: Mapped[list[float]] = mapped_column(Vector(), nullable=False)
 
-    metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    chunk_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
     def __repr__(self) -> str:

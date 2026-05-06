@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 
 from sqlalchemy import Boolean, ForeignKey, Integer, JSON, String, Enum as SAEnum
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.model.base_entity.base_entity import BaseEntity
 
@@ -30,7 +30,7 @@ class Session(BaseEntity):
     """
     PPT 创作会话。
     """
-    __tablename__ = "ppt_sessions"
+    __tablename__ = "sessions"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
@@ -69,13 +69,9 @@ class Session(BaseEntity):
         ForeignKey("user_llm_configs.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
-    current_user_search_config_id: Mapped[int | None] = mapped_column(
-        ForeignKey("user_search_configs.id", ondelete="SET NULL"), nullable=True, index=True
-    )
-
-    # RAG 和 DeepSearch 开关
-    rag_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    deep_search_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # RAG 和 DeepSearch 开关（默认关闭，用户主动开启）
+    rag_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    deep_search_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     @property
     def is_report_driven(self) -> bool:

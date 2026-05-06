@@ -46,7 +46,16 @@ class StatusCode(Enum):
     INVALID_JWT          = Status(2008, "无效的令牌")
     INVALID_JWT_TYPE     = Status(2009, "令牌类型错误")
     JWT_EXPIRED          = Status(2010, "令牌已过期")
-    JWT_BLACKLISTED      = Status(2011, "令牌已被加入黑名单")
+    JWT_BLACKLISTED         = Status(2011, "令牌已被加入黑名单")
+    SUPER_ADMIN_PROTECTED     = Status(2012, "超级管理员账号受保护，禁止此操作")
+    ADMIN_CANNOT_MANAGE_ADMIN = Status(2013, "管理员无权管理其他管理员账号")
+    PASSWORD_TOO_WEAK         = Status(2014, "密码不符合规范：需 8-16 位，不能含空格，且须包含大小写字母和数字")
+    EMAIL_ALREADY_REGISTERED  = Status(2015, "该邮箱已被注册")
+    EMAIL_NOT_FOUND           = Status(2016, "该邮箱未注册")
+    EMAIL_CODE_INVALID        = Status(2017, "验证码无效或已过期")
+    EMAIL_CODE_SEND_FAILED    = Status(2018, "验证码发送失败，请稍后重试")
+    EMAIL_NOT_VERIFIED        = Status(2019, "邮箱尚未验证")
+    DUPLICATE_EMAIL           = Status(2020, "邮箱已被使用")
 
     # ------------------------------------------------------------------ #
     # 会话模块 3xxx
@@ -71,13 +80,17 @@ class StatusCode(Enum):
     VECTORIZE_FAILED                = Status(4008, "向量化文档失败")
     QUERY_FAILED                    = Status(4009, "向量检索失败")
     REMOVE_KNOWLEDGE_REF_FAILED     = Status(4010, "会话知识库关联失败")
+    UNSUPPORTED_FILE_TYPE           = Status(4011, "不支持的文件类型，请上传 PDF、DOCX、MD 或 TXT 文件")
+    EMPTY_FILE_CONTENT              = Status(4012, "文件内容为空或无法提取文本（可能为纯图片文件）")
+    RENAME_CATEGORY_FAILED          = Status(4013, "分类重命名失败，目标分类名已存在")
 
     # ------------------------------------------------------------------ #
     # 报告模块 5xxx
     # ------------------------------------------------------------------ #
-    REPORT_NOT_FOUND      = Status(5001, "报告不存在")
-    REPORT_PARSE_FAILED   = Status(5002, "解析报告失败")
-    REPORT_SIZE_EXCEEDED  = Status(5003, "文件大小超过限制")
+    REPORT_NOT_FOUND              = Status(5001, "报告不存在")
+    REPORT_PARSE_FAILED           = Status(5002, "解析报告失败")
+    REPORT_SIZE_EXCEEDED          = Status(5003, "文件大小超过限制")
+    REPORT_UNSUPPORTED_FILE_TYPE  = Status(5004, "不支持的报告文件类型，请上传 PDF、DOCX、MD 或 TXT 文件")
 
     # ------------------------------------------------------------------ #
     # LLM 模型模块 6xxx
@@ -113,22 +126,13 @@ class StatusCode(Enum):
     LLM_QUOTA_EXCEEDED      = Status(6406, "LLM 配额已用尽")
 
     # ------------------------------------------------------------------ #
-    # 搜索服务模块 7xxx
-    # 细分：71xx 提供商，72xx 用户搜索配置，73xx 调用错误
+    # 搜索服务模块 7xxx（固定使用 Tavily，用户配置 API Key）
     # ------------------------------------------------------------------ #
 
-    # 提供商（管理员操作）
-    SEARCH_PROVIDER_NOT_FOUND     = Status(7101, "搜索服务提供商不存在")
-    SEARCH_PROVIDER_DUPLICATE     = Status(7102, "搜索服务提供商已存在")
-    SEARCH_PROVIDER_DELETE_FAILED = Status(7103, "删除搜索服务提供商失败")
-    SEARCH_PROVIDER_DISABLED      = Status(7104, "搜索服务提供商已停用")
-
     # 用户搜索配置
-    USER_SEARCH_CONFIG_NOT_FOUND       = Status(7201, "用户搜索配置不存在")
-    USER_SEARCH_CONFIG_DUPLICATE       = Status(7202, "该搜索服务已配置，请勿重复添加")
-    USER_SEARCH_CONFIG_NO_DEFAULT      = Status(7203, "用户尚未设置默认搜索配置")
+    USER_SEARCH_CONFIG_NOT_FOUND      = Status(7201, "用户搜索配置不存在")
+    USER_SEARCH_CONFIG_ALREADY_EXIST  = Status(7202, "用户搜索配置已存在")
     USER_SEARCH_CONFIG_API_KEY_MISSING = Status(7204, "搜索服务 API Key 未填写")
-    USER_SEARCH_CONFIG_NOT_ACTIVE      = Status(7205, "该搜索配置已停用，不可修改（可删除）")
 
     # 搜索调用错误
     WEB_SEARCH_FAILED      = Status(7301, "网络搜索失败")
