@@ -23,8 +23,10 @@ class Settings(BaseSettings):
 
     # ── Database ──────────────────────────────────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/ppt_system"
-    DATABASE_POOL_SIZE: int = 10
-    DATABASE_MAX_OVERFLOW: int = 20
+    # Worker 持有 DB session 跨整个任务执行（>= LLM stream 时长），需要更大的池：
+    # 8 个并发 worker 任务 + 多路 SSE 订阅 + 普通 API 请求 + 周期任务恢复
+    DATABASE_POOL_SIZE: int = 20
+    DATABASE_MAX_OVERFLOW: int = 40
     DATABASE_ECHO: bool = False
 
     # ── Redis ─────────────────────────────────────────────────────────────────

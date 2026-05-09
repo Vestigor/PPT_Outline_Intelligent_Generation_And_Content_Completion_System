@@ -89,11 +89,17 @@ class LLMClient:
                             break
                         try:
                             obj = json.loads(chunk)
-                            delta = obj["choices"][0].get("delta", {})
+                            choices = obj.get("choices") or []
+                            # 部分 OpenAI 兼容服务（如 DashScope/通义、deepseek）
+                            # 会在最后多发一个仅含 usage 的帧（choices 为空）。
+                            # 这里跳过而不是 return，保证后续 [DONE] 能正常终止流。
+                            if not choices:
+                                continue
+                            delta = choices[0].get("delta", {})
                             token = delta.get("content", "")
                             if token:
                                 yield token
-                        except (json.JSONDecodeError, KeyError):
+                        except Exception:
                             continue
             except httpx.HTTPStatusError as e:
                 logger.error("LLM stream HTTP error %s", e.response.status_code)

@@ -17,13 +17,20 @@ logger = get_logger(__name__)
 
 TASK_STREAM_KEY = "tasks:pending"
 CONSUMER_GROUP = "task_workers"
+# 同一进程内启动多个 consumer name，每个 name 对应一个独立的 PEL（Redis 视角的"消费者"）
+# 这样 XREADGROUP 可以并行从 Stream 拉取，避免单 consumer 名串行化
 CONSUMER_NAME = f"worker-{os.getpid()}"
 BATCH_SIZE = 10
 BLOCK_MS = 5000
 TASK_STREAM_MAXLEN = 1000  # approximate max entries kept in stream (MAXLEN ~)
-MAX_CONCURRENT_TASKS = 4
+# 进程内并发任务数。每个任务会持有一条 DB 连接 + 与 Redis、LLM 的网络连接。
+# 默认 8：能让 4 个长 LLM 流任务 + 4 个 INTENT_JUDGMENT 这类轻任务同时进行。
+# 调高时务必同步调高 DATABASE_POOL_SIZE / DATABASE_MAX_OVERFLOW。
+MAX_CONCURRENT_TASKS = int(os.environ.get("TASK_WORKER_CONCURRENCY", "8"))
 PER_TASK_TIMEOUT_SECONDS = 600  # 10 minutes hard cap to avoid stuck workers
 PEL_MIN_IDLE_MS = 60_000  # claim other consumers' messages idle ≥ 60s
+# RAG/DeepSearch 等可选检索阶段的总时长上限（不影响 LLM stream 自身）
+RETRIEVAL_PHASE_TIMEOUT_SECONDS = 180
 
 
 class TaskWorker:
@@ -435,6 +442,12 @@ class TaskWorker:
                     session_id=session.id,
                     task_type=TaskType.OUTLINE_GENERATION,
                     trigger_message_id=trigger_msg_id,
+                    # 沿用本任务用到的 LLM 配置和检索开关，
+                    # 否则后续 OUTLINE_GENERATION 拿不到快照需重走 session 默认配置，
+                    # 用户中途切配置时会出现"上一步用 A、下一步用 B"的不一致。
+                    snapshot_llm_config_id=session.current_user_llm_config_id,
+                    snapshot_rag_enabled=session.rag_enabled,
+                    snapshot_deep_search_enabled=session.deep_search_enabled,
                 )
                 next_task_id = new_task.id
                 from app.infrastructure.redis.redis import redis_client
@@ -529,12 +542,12 @@ class TaskWorker:
             await task_repo.update_status(task_id, TaskStatus.STREAMING)
             full_text = await self._stream_and_collect(task_id, llm, prompt)
 
-            try:
-                outline_json = self._extract_json(full_text)
-            except Exception as e:
-                await self._mark_failed_and_notify(task_id, f"大纲 JSON 解析失败: {e}")
-                return
+            logger.info("Outline task=%d: parsing JSON (chars=%d)", task_id, len(full_text))
+            outline_json = await self._extract_json_async(task_id, full_text, kind="outline")
+            if outline_json is None:
+                return  # 已在 _extract_json_async 内部上报失败
 
+            logger.info("Outline task=%d: persisting outline + assistant msg", task_id)
             version = await outline_repo.get_next_version(session.id)
             outline = await outline_repo.create(session.id, version, outline_json)
 
@@ -556,6 +569,7 @@ class TaskWorker:
                 task_id, TaskStatus.COMPLETED, result={"outline_id": outline.id}
             )
             await db.commit()
+            logger.info("Outline task=%d: db.commit done, publishing done event", task_id)
 
             await self._publish_done(task_id, {
                 "message_id": assistant_msg.id,
@@ -625,10 +639,10 @@ class TaskWorker:
             await task_repo.update_status(task_id, TaskStatus.STREAMING)
             full_text = await self._stream_and_collect(task_id, llm, prompt)
 
-            try:
-                outline_json = self._extract_json(full_text)
-            except Exception as e:
-                await self._mark_failed_and_notify(task_id, f"大纲 JSON 解析失败: {e}")
+            outline_json = await self._extract_json_async(
+                task_id, full_text, kind="outline_modification"
+            )
+            if outline_json is None:
                 return
 
             version = await outline_repo.get_next_version(session.id)
@@ -713,17 +727,44 @@ class TaskWorker:
             )
 
             # ── RAG 上下文（章节级查询并发，结果合并去重，硬性长度上限）─────
+            # 整体加超时：检索阶段不应吃掉过多任务预算（PER_TASK_TIMEOUT_SECONDS）
             rag_context = ""
             if task.snapshot_rag_enabled:
-                rag_context = await self._collect_rag_context(
-                    db, session, chapters, task_id
+                logger.info("Slide batch task=%d: RAG retrieval start", task_id)
+                try:
+                    rag_context = await asyncio.wait_for(
+                        self._collect_rag_context(db, session, chapters, task_id),
+                        timeout=RETRIEVAL_PHASE_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "RAG retrieval exceeded %ds, continuing without RAG context (task=%d)",
+                        RETRIEVAL_PHASE_TIMEOUT_SECONDS, task_id,
+                    )
+                logger.info(
+                    "Slide batch task=%d: RAG retrieval done (chars=%d)",
+                    task_id, len(rag_context),
                 )
 
             # ── DeepSearch 上下文（topic + 章节标题构造查询，限制结果总长）──
             deepsearch_context = ""
             if task.snapshot_deep_search_enabled:
-                deepsearch_context = await self._collect_deepsearch_context(
-                    db, session, chapters, outline_topic, task_id
+                logger.info("Slide batch task=%d: DeepSearch start", task_id)
+                try:
+                    deepsearch_context = await asyncio.wait_for(
+                        self._collect_deepsearch_context(
+                            db, session, chapters, outline_topic, task_id
+                        ),
+                        timeout=RETRIEVAL_PHASE_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "DeepSearch exceeded %ds, continuing without DeepSearch context (task=%d)",
+                        RETRIEVAL_PHASE_TIMEOUT_SECONDS, task_id,
+                    )
+                logger.info(
+                    "Slide batch task=%d: DeepSearch done (chars=%d)",
+                    task_id, len(deepsearch_context),
                 )
 
             # ── 合并参考资料上下文 ─────────────────────────────────────────
@@ -757,12 +798,15 @@ class TaskWorker:
 
             full_text = await self._stream_and_collect(task_id, llm, prompt)
 
-            try:
-                slides_json = self._extract_json(full_text)
-            except Exception as e:
-                await self._mark_failed_and_notify(task_id, f"幻灯片 JSON 解析失败: {e}")
-                return
+            logger.info("Slide batch task=%d: parsing JSON (chars=%d)", task_id, len(full_text))
+            slides_json = await self._extract_json_async(task_id, full_text, kind="slide")
+            if slides_json is None:
+                return  # 已在 _extract_json_async 内部上报失败
 
+            logger.info(
+                "Slide batch task=%d: parsed JSON, top-level keys=%s, persisting slide",
+                task_id, list(slides_json.keys()),
+            )
             version = await slide_repo.get_next_version(session.id)
             slide = await slide_repo.create(session.id, version, slides_json)
 
@@ -788,6 +832,7 @@ class TaskWorker:
                 task_id, TaskStatus.COMPLETED, result={"slide_id": slide.id}
             )
             await db.commit()
+            logger.info("Slide batch task=%d: db.commit done, publishing done event", task_id)
             await self._publish_done(task_id, {
                 "message_id": assistant_msg.id,
                 "text": reply_text,
@@ -854,10 +899,10 @@ class TaskWorker:
             await task_repo.update_status(task_id, TaskStatus.STREAMING)
             full_text = await self._stream_and_collect(task_id, llm, prompt)
 
-            try:
-                slides_json = self._extract_json(full_text)
-            except Exception as e:
-                await self._mark_failed_and_notify(task_id, f"幻灯片 JSON 解析失败: {e}")
+            slides_json = await self._extract_json_async(
+                task_id, full_text, kind="slide_modification"
+            )
+            if slides_json is None:
                 return
 
             version = await slide_repo.get_next_version(session.id)
@@ -1160,6 +1205,7 @@ class TaskWorker:
         await self._publish_event(task_id, "done", data)
 
     async def _mark_failed_and_notify(self, task_id: int, error: str) -> None:
+        logger.warning("Marking task %d as FAILED: %s", task_id, error)
         try:
             async with self._get_db_session() as db:
                 from app.modules.task.repository.task_repository import TaskRepository
@@ -1168,7 +1214,7 @@ class TaskWorker:
                 await repo.increment_retry(task_id)
                 await db.commit()
         except Exception as e:
-            logger.error("Failed to mark task %d as failed: %s", task_id, e)
+            logger.error("Failed to persist FAILED status for task %d: %s", task_id, e)
         await self._publish_event(task_id, "error", {"error": error})
         logger.error("Task %d failed: %s", task_id, error)
 
@@ -1209,6 +1255,57 @@ class TaskWorker:
                         if depth == 0:
                             return json.loads(text[start : i + 1])
             raise
+
+    async def _extract_json_async(
+        self, task_id: int, full_text: str, *, kind: str
+    ) -> dict | None:
+        """
+        在线程池中执行 _extract_json，加 30s 超时与首尾日志。
+        - 解析成功：返回 dict
+        - 解析失败/超时：内部已调用 _mark_failed_and_notify，返回 None
+          调用方只需 `if result is None: return`，无需自己写 try/except。
+        理由：纯 CPU 解析理论上很快，但放到线程让事件循环可以继续处理
+        其它并发任务的 SSE 推送，避免任何意外的 CPU 突刺把整个 loop 卡住。
+        """
+        import asyncio
+        import time
+
+        EXTRACT_TIMEOUT = 30.0
+        started = time.monotonic()
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(self._extract_json, full_text),
+                timeout=EXTRACT_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            elapsed = time.monotonic() - started
+            logger.error(
+                "JSON extract timeout: task=%d kind=%s elapsed=%.1fs chars=%d "
+                "head=%r tail=%r",
+                task_id, kind, elapsed, len(full_text),
+                full_text[:120], full_text[-120:],
+            )
+            await self._mark_failed_and_notify(
+                task_id, f"{kind} JSON 解析超过 {EXTRACT_TIMEOUT:.0f}s 超时"
+            )
+            return None
+        except Exception as e:
+            elapsed = time.monotonic() - started
+            logger.error(
+                "JSON extract failed: task=%d kind=%s elapsed=%.2fs error=%s "
+                "head=%r tail=%r",
+                task_id, kind, elapsed, e, full_text[:120], full_text[-120:],
+                exc_info=True,
+            )
+            await self._mark_failed_and_notify(task_id, f"{kind} JSON 解析失败: {e}")
+            return None
+
+        elapsed = time.monotonic() - started
+        logger.info(
+            "JSON extract done: task=%d kind=%s elapsed=%.2fs",
+            task_id, kind, elapsed,
+        )
+        return result
 
     # ──────────────────────────────────────────────
     # RAG / DeepSearch 检索辅助

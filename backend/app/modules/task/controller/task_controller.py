@@ -158,6 +158,10 @@ async def _sse_generator(task_id: int):
 
     每个 SSE 订阅者使用独立的 Redis 连接，不占用共享连接池，
     避免大量并发 SSE 连接耗尽连接池导致普通 API 请求失败。
+
+    心跳策略：使用 get_message(timeout=...) 的轮询方式（而非 listen()）；
+    这样当后端处于静默期（如 RAG/DB commit 段）时，仍可按固定节奏推送
+    SSE 注释行，防止 Nginx/浏览器/上游代理因长时间无字节而切断连接。
     """
     import redis.asyncio as aioredis
     from app.config import settings
@@ -176,28 +180,43 @@ async def _sse_generator(task_id: int):
 
     # 最长订阅时间 30 分钟，防止僵尸连接长期占用资源
     SSE_TIMEOUT = 1800
+    HEARTBEAT_INTERVAL = 15.0
+    POLL_TIMEOUT = 1.0  # get_message 的单次超时
     deadline = asyncio.get_event_loop().time() + SSE_TIMEOUT
 
     try:
         await pubsub.subscribe(channel)
+        # 立即推一行 SSE 注释，触发浏览器 onopen，避免 EventSource 因首字节迟到误判失败
+        yield ": connected\n\n"
 
-        heartbeat_interval = 15
         last_heartbeat = asyncio.get_event_loop().time()
 
-        async for message in pubsub.listen():
+        while True:
             now = asyncio.get_event_loop().time()
-
-            # 超时保护
             if now >= deadline:
-                logger.info("SSE task %d exceeded max lifetime (%ds), closing", task_id, SSE_TIMEOUT)
+                logger.info(
+                    "SSE task %d exceeded max lifetime (%ds), closing",
+                    task_id, SSE_TIMEOUT,
+                )
                 yield f"event: error\ndata: {json.dumps({'error': 'SSE timeout'})}\n\n"
                 break
 
-            if message["type"] == "subscribe":
-                yield ": heartbeat\n\n"
+            try:
+                message = await pubsub.get_message(
+                    ignore_subscribe_messages=True, timeout=POLL_TIMEOUT
+                )
+            except Exception as e:
+                logger.warning("SSE get_message error for task %d: %s", task_id, e)
+                message = None
+
+            if message is None:
+                # 静默期：按固定节奏发心跳，保活 TCP/HTTP 链路
+                if now - last_heartbeat >= HEARTBEAT_INTERVAL:
+                    yield ": heartbeat\n\n"
+                    last_heartbeat = now
                 continue
 
-            if message["type"] != "message":
+            if message.get("type") != "message":
                 continue
 
             raw = message["data"]
@@ -209,6 +228,7 @@ async def _sse_generator(task_id: int):
                 event_type = event.get("type", "message")
                 event_data = json.dumps(event.get("data", {}), ensure_ascii=False)
                 yield f"event: {event_type}\ndata: {event_data}\n\n"
+                last_heartbeat = now
 
                 if event_type in ("done", "error"):
                     logger.info("SSE task %d finished with event=%s", task_id, event_type)
@@ -216,10 +236,6 @@ async def _sse_generator(task_id: int):
             except json.JSONDecodeError:
                 logger.warning("SSE received invalid JSON for task %d", task_id)
                 continue
-
-            if now - last_heartbeat > heartbeat_interval:
-                yield ": heartbeat\n\n"
-                last_heartbeat = now
 
     except asyncio.CancelledError:
         logger.info("SSE client disconnected for task %d", task_id)

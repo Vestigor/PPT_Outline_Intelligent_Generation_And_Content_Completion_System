@@ -166,3 +166,4 @@ class StatusCode(Enum):
     TASK_NOT_CANCELLABLE          = Status(9002, "任务已完成或已取消，无法再次取消")
     TASK_NOT_RETRYABLE            = Status(9003, "只有失败的任务可以重试")
     TASK_ACCESS_DENIED            = Status(9004, "无权访问此任务")
+    SESSION_TASK_IN_PROGRESS      = Status(9005, "当前会话还有任务正在处理中，请稍候再发送")

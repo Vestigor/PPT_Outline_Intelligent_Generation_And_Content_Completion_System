@@ -78,7 +78,13 @@ class SessionService:
         原子创建会话并处理第一条消息。
         若携带文件则判定为 REPORT_DRIVEN（跳过需求收集），否则为 GUIDED。
         """
-        await self._validate_prereqs(user_id, llm_config_id, rag_enabled, deep_search_enabled)
+        # 校验前置条件并解析"实际生效"的 LLM 配置：
+        # 用户未显式指定时，回退到默认/最近一个 active 配置，
+        # 把它的 id 写入 session.current_user_llm_config_id；
+        # 否则该字段为 NULL，前端无法回显，task snapshot 也拿不到 id。
+        resolved_llm_config_id = await self._validate_prereqs(
+            user_id, llm_config_id, rag_enabled, deep_search_enabled
+        )
 
         is_report_driven = file is not None
         session_type = SessionType.REPORT_DRIVEN if is_report_driven else SessionType.GUIDED
@@ -97,7 +103,7 @@ class SessionService:
             title=title,
             session_type=session_type,
             stage=initial_stage,
-            llm_config_id=llm_config_id,
+            llm_config_id=resolved_llm_config_id,
             rag_enabled=rag_enabled,
             deep_search_enabled=deep_search_enabled,
         )
@@ -140,52 +146,21 @@ class SessionService:
         """
         统一消息入口，按 session.stage 路由至对应处理方法。
         在进入阶段处理之前创建用户消息记录。
+
+        并发保护：任何阶段，只要 session 内已有 PENDING/RUNNING/STREAMING 任务，
+        都直接拒绝新消息（不写入消息表，不创建任务），把当前活跃 task_id 回传，
+        前端据此恢复 SSE 订阅并展示"等待中"提示。这样避免：
+          1) 同一会话被并发判定意图 / 多次入队 OUTLINE_GENERATION
+          2) 重复用户消息污染对话历史
         """
-        # 校验会话状态
+        # 已完成的会话不再接收消息
         if session.stage == SessionStage.COMPLETED:
             raise BusinessException.exc(StatusCode.STAGE_MISMATCH.value)
 
-        if session.stage in (
-            SessionStage.OUTLINE_GENERATION,
-            SessionStage.CONTENT_GENERATION,
-        ):
-            # 生成进行中，告知用户等待
-            user_msg = await self._create_user_message(session, content)
-            reply_text = (
-                "大纲正在生成中，请通过 SSE 订阅任务进度。"
-                if session.stage == SessionStage.OUTLINE_GENERATION
-                else "内容正在生成中，请通过 SSE 订阅任务进度。"
-            )
-            assistant_msg = await self._create_assistant_message(session, reply_text)
-            return SendMessageResponse(
-                session_id=session.id,
-                message_id=user_msg.id,
-                seq_no=user_msg.seq_no,
-                task_id=None,
-                reply=reply_text,
-                streaming=False,
-            )
-
-        # *_CONFIRMING 阶段：意图判断 / *_MODIFICATION 跑在 worker 里且 stage 不变，
-        # 若已有 PENDING/RUNNING/STREAMING 的任务，拒绝新消息以避免并发判断 race。
-        if session.stage in (
-            SessionStage.OUTLINE_CONFIRMING,
-            SessionStage.CONTENT_CONFIRMING,
-        ):
-            running = await self._task_repo.find_running_by_session(session.id)
-            if running:
-                active = running[0]
-                user_msg = await self._create_user_message(session, content)
-                reply_text = "上一条消息仍在处理中，请稍候再试。"
-                await self._create_assistant_message(session, reply_text)
-                return SendMessageResponse(
-                    session_id=session.id,
-                    message_id=user_msg.id,
-                    seq_no=user_msg.seq_no,
-                    task_id=active.id,
-                    reply=reply_text,
-                    streaming=True,
-                )
+        # 任何阶段都先做并发任务保护（不入库新用户消息）
+        running = await self._task_repo.find_running_by_session(session.id)
+        if running:
+            raise BusinessException.exc(StatusCode.SESSION_TASK_IN_PROGRESS.value)
 
         user_msg = await self._create_user_message(session, content)
 
@@ -198,6 +173,9 @@ class SessionService:
         if session.stage == SessionStage.CONTENT_CONFIRMING:
             return await self._route_content_confirming(session, user_msg, content)
 
+        # 仍在 OUTLINE_GENERATION/CONTENT_GENERATION 阶段但意外没有活跃任务：
+        # 此时 stage 是上一轮任务结束前临时设置的，正常不会停留，
+        # 如果停留说明上一个任务异常死亡，提示用户重试或刷新即可
         raise BusinessException.exc(StatusCode.STAGE_MISMATCH.value)
 
     async def get_session(self, user_id: int, session_id: int) -> Session:
@@ -465,8 +443,14 @@ class SessionService:
         llm_config_id: int | None,
         rag_enabled: bool,
         deep_search_enabled: bool,
-    ) -> None:
-        """创建会话前校验：LLM 配置、RAG 配置（若启用）、DeepSearch 配置（若启用）。"""
+    ) -> int:
+        """
+        创建会话前校验并解析"实际生效"的 LLM 配置 ID：
+          - 显式传入 llm_config_id 时校验其存在性后原样返回
+          - 未传入时通过 resolve_active_llm_config 取默认/活跃配置，并返回其 id
+        返回值会被写入 session.current_user_llm_config_id，
+        避免该字段为 NULL 导致前端无法回显、task 快照拿不到配置。
+        """
         from app.modules.model.repository.model_repository import (
             UserLLMConfigRepository,
             UserRagConfigRepository,
@@ -479,8 +463,10 @@ class SessionService:
             cfg = await UserLLMConfigRepository(db).find_by_id_and_user(llm_config_id, user_id)
             if cfg is None:
                 raise BusinessException.exc(StatusCode.USER_LLM_CONFIG_NOT_FOUND.value)
+            resolved_id = cfg.id
         else:
-            await resolve_active_llm_config(db, user_id)
+            cfg = await resolve_active_llm_config(db, user_id)
+            resolved_id = cfg.id
 
         if rag_enabled:
             rag_cfg = await UserRagConfigRepository(db).find_by_user(user_id)
@@ -491,4 +477,6 @@ class SessionService:
             search_cfg = await UserSearchConfigRepository(db).find_by_user(user_id)
             if search_cfg is None:
                 raise BusinessException.exc(StatusCode.USER_SEARCH_CONFIG_NOT_FOUND.value)
+
+        return resolved_id
 

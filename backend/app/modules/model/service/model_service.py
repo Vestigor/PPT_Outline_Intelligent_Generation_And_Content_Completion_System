@@ -122,6 +122,7 @@ class ModelService:
             raise BusinessException.exc(StatusCode.USER_LLM_CONFIG_DUPLICATE.value)
 
         # 验证 API Key 有效性（真实调用）
+        
         await self._validate_llm_api_key(api_key, provider.base_url, model.model_name)
 
         if is_default:

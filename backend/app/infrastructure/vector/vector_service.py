@@ -157,7 +157,15 @@ class RAGService:
         """
         批量文本 Embedding。DashScope 单次最多 10 条，超出自动分批。
         返回与输入顺序一一对应的向量列表。
+
+        DashScope SDK 的 TextEmbedding.call() 是同步阻塞调用；直接 await
+        会冻结整个 event loop，使得并发的 worker 任务、SSE 推送、HTTP 请求
+        全部停摆，最终触发 PER_TASK_TIMEOUT_SECONDS 硬超时。这里通过
+        asyncio.to_thread 把每次调用放到独立线程，并加一个稳健的总超时，
+        防止 DashScope 单次响应过慢拖垮整条任务。
         """
+        import asyncio
+
         from dashscope import TextEmbedding
 
         api_key = self._api_key or settings.DASHSCOPE_API_KEY
@@ -167,18 +175,30 @@ class RAGService:
 
         all_embeddings: list[list[float]] = []
         n_batches = (len(texts) + _DASHSCOPE_BATCH_SIZE - 1) // _DASHSCOPE_BATCH_SIZE
+        # 单次 DashScope 调用最多等待 60s；超出视为故障
+        SINGLE_CALL_TIMEOUT = 60.0
 
         for i in range(0, len(texts), _DASHSCOPE_BATCH_SIZE):
             batch_no = i // _DASHSCOPE_BATCH_SIZE + 1
             batch = texts[i: i + _DASHSCOPE_BATCH_SIZE]
             logger.info("Embedding batch %d/%d (%d texts)", batch_no, n_batches, len(batch))
             try:
-                resp = TextEmbedding.call(
-                    model=settings.EMBEDDING_MODEL,
-                    input=batch,
-                    api_key=api_key,
-                    dimension=settings.EMBEDDING_DIMENSION,
+                resp = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        TextEmbedding.call,
+                        model=settings.EMBEDDING_MODEL,
+                        input=batch,
+                        api_key=api_key,
+                        dimension=settings.EMBEDDING_DIMENSION,
+                    ),
+                    timeout=SINGLE_CALL_TIMEOUT,
                 )
+            except asyncio.TimeoutError:
+                logger.error(
+                    "DashScope embedding timed out after %.0fs (batch %d/%d)",
+                    SINGLE_CALL_TIMEOUT, batch_no, n_batches,
+                )
+                raise BusinessException.exc(StatusCode.RAG_EMBEDDING_FAILED.value)
             except Exception as e:
                 logger.error("DashScope embedding call failed: %s", e)
                 raise BusinessException.exc(StatusCode.RAG_EMBEDDING_FAILED.value)
