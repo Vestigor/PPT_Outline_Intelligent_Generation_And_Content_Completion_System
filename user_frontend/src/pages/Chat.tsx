@@ -10,6 +10,7 @@ import {
   Globe, Pencil, PlusCircle, MinusCircle, Eye, EyeOff, Mail,
 } from 'lucide-react'
 import { useToast } from '../hooks/useToast'
+import { useTaskStream } from '../hooks/useTaskStream'
 import { Modal, Confirm } from '../components/Modal'
 import { CascadingPicker, type CPGroup } from '../components/CascadingPicker'
 import {
@@ -1092,10 +1093,6 @@ export function Chat() {
   const [sessions,     setSessions]     = useState<SessionSummary[]>(_sessionsCache)
   const [session,      setSession]      = useState<SessionDetail | null>(null)
   const [messages,     setMessages]     = useState<Message[]>([])
-  const [streaming,    setStreaming]     = useState(false)
-  const [streamText,   setStreamText]   = useState('')
-  const [taskId,       setTaskId]       = useState<number | null>(null)
-  const [progress,     setProgress]     = useState<number | null>(null)
   const [confirmDel,   setConfirmDel]   = useState<SessionSummary | null>(null)
   const [sessLoading,  setSessLoading]  = useState(_sessionsCache.length === 0)
   const [msgLoading,   setMsgLoading]   = useState(false)
@@ -1128,9 +1125,7 @@ export function Chat() {
   const bodyRef  = useRef<HTMLDivElement>(null)
   const textaRef = useRef<HTMLTextAreaElement>(null)
   const fileRef  = useRef<HTMLInputElement>(null)
-  const pollRef  = useRef<ReturnType<typeof setInterval> | null>(null)
-  const sseRef   = useRef<EventSource | null>(null)
-  // Tracks which session a newly-created SSE belongs to (prevents cross-session interference)
+  // Tracks which session a newly-created task stream belongs to (prevents cross-session interference)
   const pendingNewSessionRef = useRef<{ id: number; message: Message } | null>(null)
 
   const currentId = id ? parseInt(id) : null
@@ -1151,16 +1146,40 @@ export function Chat() {
     listUserLLMConfigs().then(setLlmConfigs).catch(() => {})
   }, [])
 
+  // 流式任务订阅：token 流、进度、自动重连与链式续订都收敛在 useTaskStream 内。
+  // 任务结束后由 onDone 重新拉取消息/会话/列表，保证 UI 与后端最终一致。
+  const {
+    streaming, streamText, progress, taskId, start: startStream, stop: stopStream,
+  } = useTaskStream({
+    onDone: async (sessionId) => {
+      const [msgs, sess] = await Promise.all([listMessages(sessionId), getSession(sessionId)])
+      setMessages(msgs)
+      setSession(sess)
+      loadSessions()
+    },
+    onError: (_sessionId, message) => {
+      toast(message || '任务执行失败', 'error')
+    },
+    onGiveUp: (sessionId) => {
+      toast('连接中断，正在恢复…', 'error')
+      // 重连彻底失败：兜底刷新一次，任务可能已在后端完成。
+      Promise.all([listMessages(sessionId), getSession(sessionId)])
+        .then(([msgs, sess]) => { setMessages(msgs); setSession(sess) })
+        .catch(() => {})
+    },
+  })
+
   // Session detail + messages — also resets streaming state on session switch
   useEffect(() => {
     const pending = pendingNewSessionRef.current
     const isNewSessionNav = pending !== null && pending.id === currentId
 
     if (!isNewSessionNav) {
-      // Switching between sessions (or back to new-session form): close any open SSE
-      if (sseRef.current) { sseRef.current.close(); sseRef.current = null }
-      setStreaming(false); setStreamText(''); setProgress(null); setTaskId(null)
+      // Switching between sessions (or back to new-session form): close any open stream
+      stopStream()
       setMessages([])
+      // 清空消息输入框：上一会话未发送的草稿不应被带到新会话
+      setInput('')
     } else {
       // Navigated to a session we just created — show optimistic message immediately
       setMessages([pending!.message])
@@ -1178,19 +1197,24 @@ export function Chat() {
         setSession(sess)
         setMessages(msgs)
         setSessionRefs(refs)
-        // Reconnect SSE if session is still in an async processing stage (e.g. after page refresh)
-        if (ASYNC_STAGES.has(sess.stage)) {
-          getActiveTask(currentId!).then(task => {
-            if (task && (task.status === 'pending' || task.status === 'running')) {
-              setTaskId(task.id)
-              subscribeSSE(task.id, currentId!)
-            }
-          }).catch(() => {})
-        }
+        // 任何会话切换都查询一次活跃任务（不再仅限 ASYNC_STAGES），
+        // 以便在 OUTLINE_CONFIRMING / CONTENT_CONFIRMING 阶段、
+        // 因 INTENT_JUDGMENT / OUTLINE_MODIFICATION / SLIDE_MODIFICATION
+        // 任务仍在跑时也能正确显示"生成中"并恢复 SSE。
+        getActiveTask(currentId!).then(task => {
+          if (task && (
+            task.status === 'pending' ||
+            task.status === 'running' ||
+            task.status === 'streaming'
+          )) {
+            startStream(task.id, currentId!)
+          }
+        }).catch(() => {})
       })
       .catch(() => {})
       .finally(() => setMsgLoading(false))
-  }, [currentId])
+    // startStream / stopStream 为 useCallback 稳定引用，列入依赖不改变行为，仅消除告警。
+  }, [currentId, startStream, stopStream])
 
   // Scroll to bottom
   useEffect(() => {
@@ -1206,53 +1230,15 @@ export function Chat() {
   }, [input])
 
 
-  // SSE subscription — sessionId is passed explicitly to avoid stale-closure interference
-  const subscribeSSE = useCallback((tid: number, sessionId: number) => {
-    if (sseRef.current) { sseRef.current.close(); sseRef.current = null }
-    const es = new EventSource(`/api/tasks/${tid}/stream?token=${getToken()}`)
-    sseRef.current = es
-    let accumulated = ''
-    setStreamText(''); setStreaming(true)
-
-    es.addEventListener('token', e => {
-      accumulated += (e as MessageEvent).data
-      setStreamText(accumulated)
-    })
-    es.addEventListener('progress', e => {
-      try { const d = JSON.parse((e as MessageEvent).data); setProgress(d.percentage ?? null) }
-      catch { /* ignore */ }
-    })
-    es.addEventListener('done', async (e) => {
-      es.close(); sseRef.current = null
-      setStreaming(false); setStreamText(''); setProgress(null); setTaskId(null)
-      const [msgs, sess] = await Promise.all([listMessages(sessionId), getSession(sessionId)])
-      setMessages(msgs); setSession(sess)
-      loadSessions()
-      // Chain to next task if provided (e.g. outline_generation after requirement_collection)
-      try {
-        const data = JSON.parse((e as MessageEvent).data)
-        if (data.next_task_id) {
-          setTaskId(data.next_task_id)
-          subscribeSSE(data.next_task_id, sessionId)
-        }
-      } catch { /* ignore */ }
-    })
-    es.addEventListener('error', () => {
-      es.close(); sseRef.current = null
-      setStreaming(false); setStreamText(''); setProgress(null); setTaskId(null)
-    })
-    es.onerror = () => { es.close(); sseRef.current = null; setStreaming(false) }
-  }, [loadSessions])
-
-  // Cleanup on unmount
-  useEffect(() => () => {
-    if (sseRef.current) { sseRef.current.close(); sseRef.current = null }
-    if (pollRef.current) clearInterval(pollRef.current)
-  }, [])
-
   async function handleSend() {
     const text = input.trim()
     if (!text || sending) return
+
+    // 客户端先做一次活跃任务保护：避免在 SSE 仍在跑时重复发送
+    if (hasActiveTask || (session && ASYNC_STAGES.has(session.stage))) {
+      toast('当前会话还有任务正在处理中，请稍候再发送', 'error')
+      return
+    }
 
     // RAG validation: block if any linked doc is not ready
     if (ragEnabled) {
@@ -1301,8 +1287,7 @@ export function Chat() {
         navigate(`/chat/${res.session_id}`)
 
         if (res.task_id) {
-          setTaskId(res.task_id)
-          subscribeSSE(res.task_id, res.session_id)
+          startStream(res.task_id, res.session_id)
         } else if (res.reply) {
           const msgs = await listMessages(res.session_id)
           setMessages(msgs)
@@ -1321,12 +1306,17 @@ export function Chat() {
         }
         setMessages(prev => [...prev, optimisticMsg])
 
-        const res = await sendMessage(currentId, text)
-        const msgs = await listMessages(currentId)
-        setMessages(msgs)
-        if (res.task_id) {
-          setTaskId(res.task_id)
-          subscribeSSE(res.task_id, currentId)
+        try {
+          const res = await sendMessage(currentId, text)
+          const msgs = await listMessages(currentId)
+          setMessages(msgs)
+          if (res.task_id) {
+            startStream(res.task_id, currentId)
+          }
+        } catch (sendErr) {
+          // 后端拒绝（如 9005 SESSION_TASK_IN_PROGRESS）：回滚乐观消息，避免界面"脏"
+          setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
+          throw sendErr
         }
       }
     } catch (err: any) {
@@ -1405,10 +1395,9 @@ export function Chat() {
     }
   }
 
-  function handleOutlineConfirmed(taskId: number) {
+  function handleOutlineConfirmed(newTaskId: number) {
     setShowOutlineEditor(false)
-    setTaskId(taskId)
-    subscribeSSE(taskId, currentId!)
+    startStream(newTaskId, currentId!)
     // Refresh session stage immediately
     getSession(currentId!).then(setSession).catch(() => {})
   }
@@ -1456,10 +1445,15 @@ export function Chat() {
     sublabel: defaultCfg.provider_name + '（默认）',
   } : undefined
 
-  // Block input during async generation stages (even after page refresh when streaming=false)
-  const isProcessing   = sending || streaming || (!!session && ASYNC_STAGES.has(session.stage))
+  // 是否有活跃任务（PENDING/RUNNING/STREAMING）：以 taskId 为唯一真源，
+  // 既覆盖刷新后由 getActiveTask 恢复的场景，也覆盖 OUTLINE_CONFIRMING /
+  // CONTENT_CONFIRMING 阶段 INTENT_JUDGMENT / *_MODIFICATION 任务在跑的情形。
+  const hasActiveTask  = taskId !== null
+  const isProcessing   = sending || streaming || hasActiveTask
+                         || (!!session && ASYNC_STAGES.has(session.stage))
   const processingHint = session?.stage === 'outline_generation' ? '大纲生成中，请稍候…'
                        : session?.stage === 'content_generation'  ? '内容生成中，请稍候…'
+                       : hasActiveTask                            ? '正在处理上一条消息，请稍候…'
                        : null
 
   return (

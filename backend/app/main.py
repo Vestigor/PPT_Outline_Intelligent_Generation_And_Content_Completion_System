@@ -86,9 +86,11 @@ async def _recover_pending_tasks(*, startup: bool = False) -> None:
     _logger = get_logger(__name__)
     TASK_STREAM_KEY = "tasks:pending"
 
-    # 比 TaskWorker.PER_TASK_TIMEOUT_SECONDS（600s）略大，
-    # 确保正常超时由 Worker 自身处理（标记 FAILED），只接管真正崩溃残留的 RUNNING/STREAMING 任务
-    RUNNING_TIMEOUT_SECONDS = 900
+    # 必须严格大于 Worker 的单任务总时长上限（PER_TASK_TIMEOUT_SECONDS），
+    # 否则一个仍在正常生成的长任务（如整份 PPT 的 SLIDE_BATCH）会被误判为僵尸而重复入队。
+    # 直接引用 Worker 常量并留 5 分钟余量，避免两处硬编码漂移。
+    from app.workers.task_worker import PER_TASK_TIMEOUT_SECONDS
+    RUNNING_TIMEOUT_SECONDS = PER_TASK_TIMEOUT_SECONDS + 300
     PENDING_RECOVERY_LAG_SECONDS = 0 if startup else 60
 
     try:

@@ -98,7 +98,52 @@ class RAGService:
             return []
 
         query_vec = await self._embed_text(query)
+        return await self._search_by_vector(
+            query_vec, session_knowledge_file_ids, top_k, score_threshold, file_name_map
+        )
 
+    async def retrieve_many(
+        self,
+        queries: list[str],
+        session_knowledge_file_ids: list[int],
+        top_k: int = settings.RAG_TOP_K,
+        score_threshold: float = settings.RAG_SIMILARITY_THRESHOLD,
+        file_name_map: dict[int, str] | None = None,
+    ) -> list[list[RetrievalResult]]:
+        """
+        批量检索：一次性向量化所有查询，再逐个查询 pgvector。
+
+        相比逐查询调用 retrieve()，把 N 次单条 Embedding 网络往返合并为
+        ⌈N/10⌉ 次批量调用（_embed_batch 内按 DashScope 上限自动分批），
+        显著降低多章节检索的总延迟与 API 调用次数。
+
+        向量库查询仍逐条串行执行——共享的 AsyncSession 不可并发使用，
+        且 pgvector 本地查询本身很快，瓶颈在 Embedding 而非 DB。
+
+        返回与 queries 顺序一一对应的结果列表（去重/排序由调用方按需处理）。
+        """
+        if not queries or not session_knowledge_file_ids:
+            return [[] for _ in queries]
+
+        query_vecs = await self._embed_batch(queries)
+
+        all_results: list[list[RetrievalResult]] = []
+        for vec in query_vecs:
+            results = await self._search_by_vector(
+                vec, session_knowledge_file_ids, top_k, score_threshold, file_name_map
+            )
+            all_results.append(results)
+        return all_results
+
+    async def _search_by_vector(
+        self,
+        query_vec: list[float],
+        session_knowledge_file_ids: list[int],
+        top_k: int,
+        score_threshold: float,
+        file_name_map: dict[int, str] | None,
+    ) -> list[RetrievalResult]:
+        """用已算好的查询向量在 pgvector 中检索 Top-K 分块并按阈值过滤。"""
         distance_col = DocumentChunk.embedding.cosine_distance(query_vec).label("distance")
         stmt = (
             select(DocumentChunk, distance_col)

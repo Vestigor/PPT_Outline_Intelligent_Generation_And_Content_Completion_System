@@ -54,11 +54,12 @@
 - 一条来源在同一页内被多次引用，只在 references 数组里登记**一次**（共享同一个 ref_number）
 - references 数组只能包含 reference_context 中真实出现过的来源，**严禁伪造**
 
-**citation_style 取值**：
+**citation_style 取值**（默认用 `summary`，仅在明确符合时才用其它）：
 - `direct`：直接引用资料原话（带引号或近乎原文）
 - `paraphrase`：忠实改写资料表述
-- `summary`：综合多句资料概括出的论断
-- `data`：引用资料中的具体数字/统计（应当确保片段确实具体的数据，不能在没有任何引用数据的片段标注 data）
+- `summary`：综合多句资料概括出的论断 —— **拿不准时一律用这个**
+- `data`：**仅当**被引用的事实/snippet 中**确实含有具体数字、百分比、年份或统计量**时才可使用。
+  ⚠️ 严禁在不含任何数字的内容上标 `data`。例如"发展绿色计算""推动技术落地"这类没有数字的论断，绝不能标 `data`，应标 `summary` 或 `paraphrase`。
 
 **snippet** 字段：填该来源在 reference_context 中**被你实际引用的那段原文**（≤ 300 字），便于校对；可空但建议填写。
 
@@ -158,7 +159,7 @@
           "source_type": "web",
           "source": "https://example.com/article",
           "citation_style": "data",
-          "snippet": "被引用的数据片段"
+          "snippet": "2023 年全球市场规模达到 1.8 万亿美元，同比增长 12%"
         }},
         {{
           "ref_number": 3,

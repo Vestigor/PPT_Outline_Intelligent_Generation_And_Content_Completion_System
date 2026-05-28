@@ -372,6 +372,13 @@ class SessionService:
             snapshot_deep_search_enabled=session.deep_search_enabled,
         )
 
+        # 关键：必须先提交事务，再 xadd 入队。
+        # 否则 Worker 可能在本请求事务提交前就消费到消息，用独立 session 查不到该 task
+        # （或 UPDATE WHERE status=PENDING 命中 0 行），消息被 ACK 丢弃，任务沦为 DB 孤儿，
+        # 只能等周期恢复（最长 ~60s）重推——表现为"PENDING 任务很久才开始处理"。
+        # 提交后 task 及本请求前序写入（user_msg / session.stage 等）对 Worker 立即可见。
+        await self._task_repo._db.commit()
+
         from app.infrastructure.redis.redis import redis_client
         payload: dict = {
             "task_id": str(task.id),

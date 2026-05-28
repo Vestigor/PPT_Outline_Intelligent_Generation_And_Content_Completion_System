@@ -212,13 +212,19 @@ export interface Slide {
 export const getSlides = (session_id: number) => get<Slide>(`/sessions/${session_id}/slides`)
 
 // ── Tasks ─────────────────────────────────────────────────────────────────
-export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type TaskStatus = 'pending' | 'running' | 'streaming' | 'completed' | 'failed' | 'cancelled'
 export interface TaskStatusResp { id: number; status: TaskStatus; progress: number | null; error: string | null }
 export const getTaskStatus = (task_id: number) =>
   get<TaskStatusResp>(`/tasks/${task_id}/status`)
 export interface ActiveTaskResp { id: number; status: TaskStatus; type: string }
 export const getActiveTask = (session_id: number) =>
   get<ActiveTaskResp | null>(`/tasks/sessions/${session_id}/active`)
+
+// SSE 一次性票据：EventSource 无法带 Authorization 头，故先用正常鉴权换取短时票据，
+// 再用 ?ticket= 连接 SSE，避免把长期 access token 暴露在 URL / 日志中。
+export interface StreamTicketResp { ticket: string; expires_in: number }
+export const getStreamTicket = (task_id: number) =>
+  post<StreamTicketResp>(`/tasks/${task_id}/stream-ticket`)
 
 // ── Knowledge ─────────────────────────────────────────────────────────────
 export type DocStatus = 'pending' | 'processing' | 'ready' | 'failed'

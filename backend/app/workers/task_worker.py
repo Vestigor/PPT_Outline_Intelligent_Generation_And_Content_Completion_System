@@ -6,6 +6,7 @@ import os
 
 from sqlalchemy import update
 
+from app.common.ai.llm_client import LLMClientError
 from app.common.model.entity.message import MessageRole
 from app.common.model.entity.session import SessionStage, SessionType
 from app.common.model.entity.task import Task, TaskStatus, TaskType
@@ -27,7 +28,13 @@ TASK_STREAM_MAXLEN = 1000  # approximate max entries kept in stream (MAXLEN ~)
 # 默认 8：能让 4 个长 LLM 流任务 + 4 个 INTENT_JUDGMENT 这类轻任务同时进行。
 # 调高时务必同步调高 DATABASE_POOL_SIZE / DATABASE_MAX_OVERFLOW。
 MAX_CONCURRENT_TASKS = int(os.environ.get("TASK_WORKER_CONCURRENCY", "8"))
-PER_TASK_TIMEOUT_SECONDS = 600  # 10 minutes hard cap to avoid stuck workers
+# 任务执行超时采用「分层超时」而非单一总时长上限：
+#   - 是否卡死由「LLM 流空闲看门狗」(IDLE_ABORT_SECONDS=90s) 判定——
+#     只要持续有 token 到达就不中断，避免误杀正常但耗时的大生成（如 SLIDE_BATCH 整份 PPT）。
+#   - 非流式阶段各自有细粒度超时：RAG/DeepSearch 180s、JSON 解析 30s、embedding 60s。
+#   - 下面这个总时长仅作「防永久挂起」的最后防线（如底层 await 永久 hang），
+#     取一个正常生成永远碰不到的保守大值，不再用它来掐正在输出的任务。
+PER_TASK_TIMEOUT_SECONDS = int(os.environ.get("TASK_WORKER_MAX_SECONDS", "1800"))  # 30min 兜底
 PEL_MIN_IDLE_MS = 60_000  # claim other consumers' messages idle ≥ 60s
 # RAG/DeepSearch 等可选检索阶段的总时长上限（不影响 LLM stream 自身）
 RETRIEVAL_PHASE_TIMEOUT_SECONDS = 180
@@ -358,8 +365,12 @@ class TaskWorker:
                     schema,
                     temperature=0.3,
                 )
+            except LLMClientError as e:
+                await self._mark_failed_and_notify(task_id, str(e))
+                return
             except Exception as e:
-                await self._mark_failed_and_notify(task_id, f"LLM 调用失败: {e}")
+                logger.error("Requirement judge unexpected error: %s", e, exc_info=True)
+                await self._mark_failed_and_notify(task_id, "需求分析失败，请稍后重试")
                 return
 
             extracted = judgment.get("extracted", {})
@@ -803,6 +814,10 @@ class TaskWorker:
             if slides_json is None:
                 return  # 已在 _extract_json_async 内部上报失败
 
+            # 校正引用风格：LLM 常把不含数字的来源误标为 "data"（数据引用）。
+            # 用确定性规则兜底，不依赖模型自觉。
+            self._normalize_citation_styles(slides_json, task_id)
+
             logger.info(
                 "Slide batch task=%d: parsed JSON, top-level keys=%s, persisting slide",
                 task_id, list(slides_json.keys()),
@@ -905,6 +920,9 @@ class TaskWorker:
             if slides_json is None:
                 return
 
+            # 与首次生成一致：校正被误标的 "data" 引用风格
+            self._normalize_citation_styles(slides_json, task_id)
+
             version = await slide_repo.get_next_version(session.id)
             slide = await slide_repo.create(session.id, version, slides_json)
 
@@ -998,8 +1016,12 @@ class TaskWorker:
                 judgment = await llm.chat_with_schema(
                     [{"role": "user", "content": prompt}], schema, temperature=0.1
                 )
+            except LLMClientError as e:
+                await self._mark_failed_and_notify(task_id, str(e))
+                return
             except Exception as e:
-                await self._mark_failed_and_notify(task_id, f"LLM 调用失败: {e}")
+                logger.error("Intent judge unexpected error: %s", e, exc_info=True)
+                await self._mark_failed_and_notify(task_id, "意图分析失败，请稍后重试")
                 return
 
             intent = judgment.get("intent", "IRRELEVANT")
@@ -1307,6 +1329,46 @@ class TaskWorker:
         )
         return result
 
+    @staticmethod
+    def _normalize_citation_styles(slides_json: dict, task_id: int) -> None:
+        """
+        原地校正 references[].citation_style。
+
+        LLM 常把不含任何数字的来源误标为 "data"（数据引用）。这里用确定性规则兜底：
+        当一条引用标为 "data"、但其 snippet 中不含任何数字时，降级为 "summary"。
+        （snippet 是该来源被实际引用的原文节选；无数字即不可能是"数据引用"。）
+        snippet 缺失时无法判定，保守降级为 "summary"，避免出现"无数据却标数据引用"。
+        """
+        import re
+
+        slides = slides_json.get("slides")
+        if not isinstance(slides, list):
+            return
+
+        has_digit = re.compile(r"\d")
+        fixed = 0
+        for slide in slides:
+            if not isinstance(slide, dict):
+                continue
+            refs = slide.get("references")
+            if not isinstance(refs, list):
+                continue
+            for ref in refs:
+                if not isinstance(ref, dict):
+                    continue
+                if ref.get("citation_style") != "data":
+                    continue
+                snippet = ref.get("snippet") or ""
+                if not has_digit.search(snippet):
+                    ref["citation_style"] = "summary"
+                    fixed += 1
+
+        if fixed:
+            logger.info(
+                "Slide batch task=%d: downgraded %d mislabeled 'data' citation(s) → 'summary'",
+                task_id, fixed,
+            )
+
     # ──────────────────────────────────────────────
     # RAG / DeepSearch 检索辅助
     # ──────────────────────────────────────────────
@@ -1366,21 +1428,22 @@ class TaskWorker:
             if not queries:
                 return ""
 
-            # DashScope embedding 在 _embed_batch 内是同步阻塞，串行调用 retrieve 即可
+            # 批量向量化所有章节查询（N 次单条 Embedding → ⌈N/10⌉ 次批量调用），
+            # 再逐查询查 pgvector。结果按章节顺序返回后做跨章节去重。
             seen: set[str] = set()
             collected: list = []
-            for q in queries:
-                try:
-                    results = await rag_svc.retrieve(
-                        q,
-                        knowledge_file_ids,
-                        top_k=4,
-                        score_threshold=0.6,
-                        file_name_map=file_name_map,
-                    )
-                except Exception as e:
-                    logger.warning("RAG retrieve failed for query '%s': %s", q[:60], e)
-                    continue
+            try:
+                per_query_results = await rag_svc.retrieve_many(
+                    queries,
+                    knowledge_file_ids,
+                    top_k=4,
+                    score_threshold=0.6,
+                    file_name_map=file_name_map,
+                )
+            except Exception as e:
+                logger.warning("RAG batch retrieve failed (task_id=%d): %s", task_id, e)
+                per_query_results = []
+            for results in per_query_results:
                 for r in results:
                     key = r.content[:120]
                     if key in seen:
