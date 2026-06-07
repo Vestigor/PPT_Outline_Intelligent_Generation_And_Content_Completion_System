@@ -40,6 +40,15 @@ PEL_MIN_IDLE_MS = 60_000  # claim other consumers' messages idle ≥ 60s
 RETRIEVAL_PHASE_TIMEOUT_SECONDS = 180
 
 
+class TaskCancelledError(Exception):
+    """
+    用户主动取消任务时由流式循环抛出。
+
+    与普通异常区分对待：捕获后不应把任务标记为 FAILED（DB 状态已由
+    cancel_task 置为 CANCELLED），只需通知前端收尾并清理取消标记。
+    """
+
+
 class TaskWorker:
     """
     异步任务执行 Worker（Redis Stream Consumer Group 模式）。
@@ -254,6 +263,16 @@ class TaskWorker:
             )
             if task_id:
                 await self._mark_failed_and_notify(task_id, "任务执行超时，请重试")
+        except TaskCancelledError:
+            # 用户主动取消：DB 状态已是 CANCELLED，这里只通知前端收尾并清理取消标记，
+            # 不走 _mark_failed_and_notify（否则会被错误标记为 FAILED）。
+            logger.info("Task %d cancelled by user; stopping processing", task_id)
+            if task_id:
+                await self._publish_event(task_id, "error", {"error": "任务已取消"})
+                try:
+                    await redis_client.delete(f"task:{task_id}:cancel")
+                except Exception:
+                    pass
         except Exception as e:
             logger.error(
                 "Task dispatch failed for msg %s task_id=%d: %s",
@@ -1132,6 +1151,20 @@ class TaskWorker:
         except Exception:
             return False
 
+    @staticmethod
+    async def _is_cancelled(task_id: int) -> bool:
+        """
+        检查用户是否已请求取消该任务（cancel_task 写入的 Redis 取消标记）。
+
+        用轻量 Redis EXISTS 而非查 DB：流式循环里会被周期性调用，必须廉价。
+        Redis 不可用时返回 False（保守：宁可让任务跑完也不误杀）。
+        """
+        from app.infrastructure.redis.redis import redis_client
+        try:
+            return bool(await redis_client.exists(f"task:{task_id}:cancel"))
+        except Exception:
+            return False
+
     async def _stream_and_collect(self, task_id: int, llm, prompt: str) -> str:
         """流式调用 LLM，实时发布 token 事件，返回完整输出文本。
 
@@ -1194,6 +1227,14 @@ class TaskWorker:
                 )
                 last_log_at = now
                 last_log_count = token_count
+                # 复用日志节奏（每 200 token / 5s）顺带轮询取消标记，避免每个 token 都查 Redis。
+                # 取消延迟上限即该节奏，对用户体验足够；命中后立即中止流式，停止烧 token。
+                if await self._is_cancelled(task_id):
+                    logger.info(
+                        "LLM stream cancelled by user: task=%d tokens=%d elapsed=%.1fs",
+                        task_id, token_count, now - stream_started,
+                    )
+                    raise TaskCancelledError(task_id)
 
         logger.info(
             "LLM stream done: task=%d tokens=%d chars=%d elapsed=%.1fs",

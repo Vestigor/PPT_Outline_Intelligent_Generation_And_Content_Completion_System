@@ -200,6 +200,11 @@ class SessionService:
         if outline:
             await self._outline_repo.confirm(outline.id)
 
+        # 大纲编辑器里点「确认并生成 PPT」是一次用户动作，但不走聊天输入框。
+        # 补一条用户消息，让对话流里能看到用户的确认这一步（与手动发送确认语义一致），
+        # 并保证刷新/重新拉取消息后该气泡依然存在。
+        await self._create_user_message(session, "确认大纲修改，生成PPT")
+
         task = await self._enqueue_task(session, TaskType.SLIDE_BATCH)
         msg = await self._create_assistant_message(session, "大纲已确认，正在生成幻灯片内容，请稍候…")
         logger.info("Session %d: outline confirmed directly, enqueued SLIDE_BATCH task %d", session.id, task.id)

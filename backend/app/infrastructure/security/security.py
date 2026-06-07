@@ -76,7 +76,7 @@ async def decode_access_token(token: str) -> dict[str, Any]:
             logger.error("Invalid JWT")
             raise AuthException.exc(StatusCode.INVALID_JWT.value)
 
-        if await tokenInBlacklist(token):
+        if await token_in_blacklist(token):
             logger.error("JWT blacklisted")
             raise AuthException.exc(StatusCode.JWT_BLACKLISTED.value)
         
@@ -103,7 +103,7 @@ async def decode_refresh_token(token: str) -> dict[str, Any]:
         if not payload.get("sub"):
             raise AuthException.exc(StatusCode.INVALID_JWT.value)
 
-        if await tokenInBlacklist(token):
+        if await token_in_blacklist(token):
             raise AuthException.exc(StatusCode.JWT_BLACKLISTED.value)
 
         return payload
@@ -115,5 +115,5 @@ async def decode_refresh_token(token: str) -> dict[str, Any]:
         raise AuthException.exc(StatusCode.INVALID_JWT.value)
 
 
-async def tokenInBlacklist(token: str) -> bool:
+async def token_in_blacklist(token: str) -> bool:
     return await redis_helper.exists(f"jwt_blacklist:{token}")

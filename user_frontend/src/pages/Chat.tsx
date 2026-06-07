@@ -34,6 +34,17 @@ const STAGE_LABEL: Record<string, string> = {
 
 const ASYNC_STAGES = new Set(['outline_generation', 'content_generation'])
 
+// 大纲/幻灯片生成（及其修改）阶段，LLM 是直接流式输出 JSON 的，token 拼接出来是
+// 一段裸 JSON（可能带 ```json 代码围栏），不应作为对话气泡逐字展示给用户——
+// 用户只该看到生成完成后渲染好的结构化卡片。需求收集 / 意图判断等阶段输出的才是
+// 自然语言回复，可以照常流式展示。
+// 自然语言回复绝不会以 { / [ / ` 开头，故以「首个非空白字符」判定即可可靠区分，
+// 且对 useTaskStream 内部链式续订出来的后续任务同样生效（无需感知任务类型）。
+function looksLikeJsonStream(text: string): boolean {
+  const t = text.trimStart()
+  return t.startsWith('{') || t.startsWith('[') || t.startsWith('`')
+}
+
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`
@@ -1397,6 +1408,18 @@ export function Chat() {
 
   function handleOutlineConfirmed(newTaskId: number) {
     setShowOutlineEditor(false)
+    // 乐观插入一条用户确认消息，立即给出反馈。后端 confirm_outline 已持久化同一条消息，
+    // 任务结束后 onDone 重新拉取消息列表时，这条乐观消息会被真实消息整体替换，不会重复。
+    setMessages(prev => [...prev, {
+      id: -Date.now(),
+      session_id: currentId!,
+      role: 'user',
+      seq_no: -1,
+      content: '确认大纲修改，生成PPT',
+      outline_json: null,
+      slide_json: null,
+      created_at: new Date().toISOString(),
+    }])
     startStream(newTaskId, currentId!)
     // Refresh session stage immediately
     getSession(currentId!).then(setSession).catch(() => {})
@@ -1666,7 +1689,7 @@ export function Chat() {
                           <div className="task-progress-fill" style={{ width: `${progress * 100}%` }} />
                         </div>
                       </div>
-                    ) : streaming && streamText ? (
+                    ) : streaming && streamText && !looksLikeJsonStream(streamText) ? (
                       <div className="msg-bubble ai-bubble">{streamText}</div>
                     ) : (
                       <div className="msg-bubble ai-bubble">
