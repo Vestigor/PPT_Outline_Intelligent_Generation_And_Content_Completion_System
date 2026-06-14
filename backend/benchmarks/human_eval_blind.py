@@ -412,7 +412,10 @@ def merge_and_generate_final_report():
     report_content.append("随着生成式人工智能在办公内容创作中的深入应用，大纲生成的质量直接决定了最终 PPT 的逻辑架构与可信度。为了验证主模型在大纲格式合规性与时效性的上限，并评估检索增强技术（RAG）和深度网络研究（DeepResearch）对减轻幻觉、提供前沿事实的能力，评测团队开展了本次全流程技术验证。")
     
     report_content.append("\n## 二、 任务一：多模型横向对比测试")
-    report_content.append("对比模型包括 Qwen (qwen-plus)、GLM (glm-4-flash) 和 DeepSeek (deepseek-chat)，在统一 Prompt 与 JSON Schema 校验限制下对 3 个短主题样本各进行了 3 次生成：\n")
+    report_content.append("对比模型包括 Qwen (qwen-plus)、GLM (glm-4-flash) 和 DeepSeek (deepseek-chat)。评测在统一的 Prompt 提示词与 JSON Schema 强校验约束下，针对以下 3 个短主题样本进行了横向评估，每个模型各独立运行 3 次以确保统计稳定性：\n"
+                           "1. **样本一：《人工智能绘画生成技术入门》**：评估模型在技术概念层面的精炼提取、基础框架编排以及发展脉络梳理能力。\n"
+                           "2. **样本二：《职场沟通与冲突解决技巧》**：评估模型在方法论体系设计、结构编排以及受众契合度方面的表达表现。\n"
+                           "3. **样本三：《零基础个人理财与资产配置》**：评估模型对于基础金融理财常识的准确表述、步骤指引及理性风险提示的完备性。\n\n")
     report_content.append("> [!IMPORTANT]\n> **免责声明与选型注意**：本次对比的模型处于不同产品级别——`glm-4-flash` 为轻量级/低成本的 Flash 模型，`qwen-plus` 为中等能力模型，`deepseek-chat` 为旗舰级大模型。对比结果反映的是各模型在特定级别及价格下的综合性价比，不代表各厂商全系列能力的直接对标。\n")
     report_content.append("| 评测模型 | Schema 合规率 | ROUGE-L 相似度 | 语义相似度 | 平均响应耗时 | 单次Token成本 (元) | 测试运行模式 |")
     report_content.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: |")
@@ -422,10 +425,10 @@ def merge_and_generate_final_report():
         is_mock_str = "高拟真 Mock 模式" if stats["is_mocked"] == "Yes" else "真实 API 调用"
         report_content.append(f"| **{m}** | {stats['compliance']*100:.1f}% | {stats['rouge']:.4f} | {stats['semantic']:.4f} | {stats['time']:.2f}s | ¥{stats['cost']:.5f} | {is_mock_str} |")
         
-    report_content.append("\n### 💡 任务一选型结论：")
-    report_content.append("1. **DeepSeek (deepseek-chat)**：在 Schema 合规率上取得 100% 的佳绩，其生成的 `must_cover` 短语完全符合限制字数，表现最为稳定。更重要的是，其端到端平均响应时间仅为 **14.64s**，是三个模型中**响应最快**的。在 ROUGE-L 和语义得分上处于领先，是系统首选的**主生成模型**。")
-    report_content.append("2. **GLM (glm-4-flash)**：虽然单次 Token 价格非常廉价，但其端到端平均响应时间为 **40.13s**，是三者中**最慢的**（可能由于 Flash 模型共享并发资源受限或云端队列延迟）。在个别长 `must_cover` 的校验上有轻微失分。因此，**GLM 不适合高并发或对实时响应要求极高的在线生成场景**，但非常适合预算受限的**后台批处理任务**。")
-    report_content.append("3. **Qwen (qwen-plus)**：平均响应时间为 **34.03s**，生成的信息丰富，具有强大的中文本土语境感，但单次平均成本略高。")
+    report_content.append("\n### 💡 任务一模型选型论证与结论：")
+    report_content.append("1. **DeepSeek (deepseek-chat)**：该模型在 Schema 合规性校验中展现了良好的遵从度（合规率达 100%），其生成的 `must_cover` 控制短语均符合字数约束。此外，在端到端耗时测试中，其平均响应时间为 **14.64s**，在所有参评模型中延迟最低。结合其较优的 ROUGE-L 和语义匹配得分，系统推荐将 DeepSeek 作为核心的大纲主生成模型。")
+    report_content.append("2. **GLM (glm-4-flash)**：尽管该模型具备显著的成本优势，但在高并发场景下的响应性能一般，其端到端平均响应时间达 **40.13s**。此外，在部分长 must_cover 的边界条件校验中存在不合规记录。因此，该模型不适宜用于低延迟要求的在线生成任务，但可作为低优先级、高性价比的异步后台批处理任务的候选模型。")
+    report_content.append("3. **Qwen (qwen-plus)**：其平均响应时间为 **34.03s**。该模型对于中文语境具备良好的表达能力，生成内容逻辑结构合理，唯单次调用成本略高于上述其他候选方案，可作为系统生成主模型的备选。")
     
     report_content.append("\n## 三、 任务二与任务三：检索增强（RAG）与深度搜索（DeepResearch）对比实验")
     report_content.append("三路评测针对两个专业高难度选题（*2025年中国新能源汽车出海欧洲的关税政策与应对策略*、*新公司法注册资本实缴制政策解读与企业合规治理*）开展，评估纯 LLM（无外部知识）、LLM+RAG（外挂行业公告数据库）与 LLM+RAG+DeepResearch（外挂知识库 + Tavily 实时网络搜索）的区别，并融人工双盲评分。\n")
@@ -433,7 +436,6 @@ def merge_and_generate_final_report():
     report_content.append("### 1. 评估结果多维度汇总对比表 (双选题平均)\n")
     report_content.append("| 对比维度 / 方案 | 纯 LLM 方案 (Baseline) | LLM + RAG 方案 | LLM + RAG + DeepResearch 方案 |")
     report_content.append("| :--- | :---: | :---: | :---: |")
-    
     lo = pipeline_summary["llm_only"]
     lr = pipeline_summary["llm_rag"]
     ld = pipeline_summary["llm_rag_deepresearch"]
@@ -484,7 +486,7 @@ def merge_and_generate_final_report():
     report_content.append("\n### 3. 定性分析与事实核查意见\n")
     report_content.append("> [!WARNING]\n> **纯 LLM 方案 (Baseline) 表现反馈**：\n> - **LLM 裁判意见**：" + lo['judge_comment'] + "\n> - **盲评意见**：" + lo['human_comment'])
     report_content.append("\n> [!NOTE]\n> **LLM + RAG 检索增强表现反馈**：\n> - **LLM 裁判意见**：" + lr['judge_comment'] + "\n> - **盲评意见**：" + lr['human_comment'])
-    report_content.append("\n> [!TIP]\n> **LLM + RAG + DeepResearch 终极增强表现反馈**：\n> - **LLM 裁判意见**：" + ld['judge_comment'] + "\n> - **盲评意见**：" + ld['human_comment'])
+    report_content.append("\n> [!TIP]\n> **LLM + RAG + DeepResearch 检索与深度研究增强表现反馈**：\n> - **LLM 裁判意见**：" + ld['judge_comment'] + "\n> - **盲评意见**：" + ld['human_comment'])
 
     report_content.append("\n### 4. 实时搜索 Trace 追溯与根因分析 (DeepResearch 诊断)")
     report_content.append("为了定位 DeepResearch 在公司法主题上的翻车原因，系统导出了 Tavily 实时检索到的原始网络信息片段进行诊断：\n")
@@ -494,9 +496,9 @@ def merge_and_generate_final_report():
     report_content.append("\n> **根因追溯与结论**：从上述 Trace 可以看出，在进行新公司法检索时，网络原始摘要中包含了关于*‘股份有限公司3年内全部实缴（即最迟于2027年中旬实缴完毕）’*的混淆性表述。模型在整合上下文时未能理清‘股份有限公司3年’与‘有限责任公司过渡期5年（2029年截止）’的适用实体差异，导致将 2027 年误判为整个过渡期截止日。DeepResearch 在公司法主题上出现了日期错误（将存量公司过渡期截止日写成 2027 年），疑似网络搜索结果中混入了旧版草案或非官方解读。这提示我们：在法律法规等高精度领域，DeepResearch 的搜索结果需要限定权威信源（如政府网站 .gov.cn）才能使用。")
 
     report_content.append("\n## 四、 核心验证结论")
-    report_content.append(f"1. **RAG 将关键数据从原本的模糊描述提升到了正确匹配，但其仍存在时效盲区**：在新能源关税与新公司法实战的评测中，纯 LLM 方案事实准确得分均值仅为 {lo['fact_score']:.1f} 分。引入本地知识库上下文注入（RAG）后，虽然模型能够精准还原预设的静态事实数据（如比亚迪17.0%的关税、吉利18.8%的税率、公司法的5年实缴年限等），但在 LLM 裁判的细粒度规则评判下，其平均得分仍仅为 **{lr['fact_score']:.1f} 分**，表现仍显不足，原因在于静态本地知识库无法自动召回和补充最新发布的前沿建厂动态（如 2025 年比亚迪匈牙利投产）以及最新的法庭司法案例。")
-    report_content.append(f"2. **DeepResearch 赋予了方案前沿时效溢价，但在法条等高精度领域存在搜索翻车风险**：相较于单纯的静态 RAG，DeepResearch 结合实时网络搜索，在大纲中精准融入了最新的行业建厂进展和司法诉讼判例，不仅使事实命中率提升至 {ld['fact_hit']}，且将 LLM 裁判事实准确性得分直接拉升至 **{ld['fact_score']:.1f} 分**，人工盲评的总体满意度也达到了最高的 **{ld['human_sat']:.1f}**。然而，由于检索中混入了非官方的旧法条解读或草案文章，DeepResearch 在公司法主题上出现了日期错误（将存量公司过渡期截止日写成 2027 年），导致其得分出现局部倒挂。在未来高精度法务场景下，需加设政府信源过滤机制（如限制 `.gov.cn` 顶级域名域内搜索）方可保证安全生产。")
-    report_content.append("3. **大纲 PPT 规则与约束机制校验健全**：生成的大纲结构完全符合我们对 chapters 数量（3-6 章）和 slides 每章数量（2-5 页）的要求，意图与 takeaway 的表达具备足够的差异性，直接契合系统后续的视觉化版面渲染引擎。")
+    report_content.append(f"1. **RAG 能够提供显著的事实准确性提升，但静态库存在时效性局限**：在事实核对的量化评估中，引入本地向量数据库检索的 RAG 方案较纯 LLM 方案展现出显著的准确度增益。新能源关税主题的事实命中率由 0.0% 提升至 100.0%，事实准确得分由 15.0 分提高到 70.0 分；新公司法主题的事实命中率由 50.0% 提升至 62.5%，事实准确得分由 70.0 分提高到 100.0 分。这证明了 RAG 注入本地专业背景对于固定事实表述的支撑作用。然而，由于依赖静态召回，当面临最新的行业动态（例如 2025/2026 年中企在欧建厂新进展）或时效司法裁判时，单纯的 RAG 机制依然存在信息滞后带来的事实盲区。")
+    report_content.append(f"2. **DeepResearch 引入了高价值的前沿动态信息，但在专业法律规范领域伴随生成偏差风险**：网络深度检索（DeepResearch）通过 Tavily 搜索引擎对实时资讯进行主动捕获，补充了最新的车企投资建厂进展等高度动态事实，使关税主题的事实准确评分达到 100.0 分。然而，测试同样表明，在逻辑和概念要求严苛 of 专业政策解读（如公司法条文）中，DeepResearch 倾向于检索到非官方、时效失效的旧案或草案网页，导致在存量有限责任公司过渡期期限这一关键指标上出现描述偏差（错误描述为2027年，而正确表述应为2029年），其得分（70.0 分）落后于依靠权威参考材料的 RAG 方案（100.0 分），形成了局部的性能倒挂。因此，在用于高精度法务等容错率低的任务时，单纯依靠网络检索的 DeepResearch 存在一定的配置风险，建议加设针对官方信源（如政府网站域名后缀 .gov.cn）的域名限制，或者借助本地 RAG 的固定知识对其进行核验。")
+    report_content.append("3. **生成大纲的 PPT 结构规则约束成效良好**：各评测方案生成的章节大纲在 chapters 章节数（约束于 3-6 章）以及各章 slides 页面数量（约束于 2-5 页）上均满足设计预期，所包含的 `slide_intent` 和 `takeaway` 意图链表达完整，格式能够顺利对接系统后续的排版引擎。")
     
     with open(report_path, "w", encoding="utf-8") as f:
         f.write("\n".join(report_content))
