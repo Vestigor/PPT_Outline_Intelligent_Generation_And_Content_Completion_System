@@ -1,0 +1,5 @@
+{
+  "方案 A": "llm_rag",
+  "方案 B": "llm_only",
+  "方案 C": "llm_rag_deepresearch"
+}
