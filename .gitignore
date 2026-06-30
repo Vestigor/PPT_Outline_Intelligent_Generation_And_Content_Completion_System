@@ -5,6 +5,10 @@
 .venv
 __pycache__
 .env
+.env.*
+!.env.example
+deploy/certs/*.pem
+deploy/certs/*.key
 
 ### frontend ###
 

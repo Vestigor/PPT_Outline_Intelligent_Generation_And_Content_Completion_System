@@ -19,10 +19,14 @@ class Settings(BaseSettings):
     APP_NAME: str = "PPT Intelligent Generation System"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:3001"]
+    ALLOWED_ORIGINS: List[str] = ["https://ppt.vestigor.top"]
 
     # ── Database ──────────────────────────────────────────────────────────────
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/ppt_system"
+    # POSTGRES_* initializes the Compose container; DATABASE_URL is used by the app.
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str = "password"
+    POSTGRES_DB: str = "ppt_system"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:password@postgres:5432/ppt_system"
     # Worker 持有 DB session 跨整个任务执行（>= LLM stream 时长），需要更大的池：
     # 8 个并发 worker 任务 + 多路 SSE 订阅 + 普通 API 请求 + 周期任务恢复
     DATABASE_POOL_SIZE: int = 20
@@ -30,7 +34,8 @@ class Settings(BaseSettings):
     DATABASE_ECHO: bool = False
 
     # ── Redis ─────────────────────────────────────────────────────────────────
-    REDIS_URL: str = "redis://:123456@localhost:6379/0"
+    REDIS_PASSWORD: str = "123456"
+    REDIS_URL: str = "redis://:123456@redis:6379/0"
     REDIS_ENCODING: str = "utf-8"
     REDIS_DECODE_RESPONSES: bool = True
     REDIS_MAX_CONNECTIONS: int = 50
@@ -43,7 +48,10 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # ── MinIO / S3 ────────────────────────────────────────────────────────────
-    OSS_ENDPOINT: str = "http://localhost:9000"
+    # MINIO_ROOT_* initializes the container; OSS_* is used by the app.
+    MINIO_ROOT_USER: str = "minioadmin"
+    MINIO_ROOT_PASSWORD: str = "minioadmin"
+    OSS_ENDPOINT: str = "http://minio:9000"
     OSS_ACCESS_KEY: str = "minioadmin"
     OSS_SECRET_KEY: str = "minioadmin"
     OSS_BUCKET_NAME: str = "ppt-files"
