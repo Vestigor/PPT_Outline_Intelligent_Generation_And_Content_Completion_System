@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Users, Cpu, FileText, Activity } from 'lucide-react'
 import { Layout } from '../components/Layout'
 import { listUsers, listProviders } from '../api'
@@ -126,7 +127,7 @@ function QuickLink({ href, icon, label, desc }: {
   href: string; icon: React.ReactNode; label: string; desc: string
 }) {
   return (
-    <a href={href} style={{
+    <Link to={href} style={{
       display: 'flex', alignItems: 'flex-start', gap: 12,
       padding: '14px 16px', borderRadius: 8, border: '1px solid var(--border)',
       transition: 'background 150ms, border-color 150ms',
@@ -145,6 +146,6 @@ function QuickLink({ href, icon, label, desc }: {
         <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{label}</div>
         <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{desc}</div>
       </div>
-    </a>
+    </Link>
   )
 }
