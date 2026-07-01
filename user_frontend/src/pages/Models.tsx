@@ -11,11 +11,12 @@ import {
   listAvailableProviders,
   getUserRagConfig, createUserRagConfig, updateUserRagConfig, deleteUserRagConfig,
   getUserSearchConfig, createUserSearchConfig, updateUserSearchConfig, deleteUserSearchConfig,
-  logout, getToken, changePassword, deleteAccount, sendEmailCode, updateEmail, clearAuthAndRedirect,
+  logout, getToken, deleteAccount, sendEmailCode, updateEmail, clearAuthAndRedirect,
   type UserLLMConfig, type AvailableProvider, type UserRagConfig, type UserSearchConfig,
 } from '../api'
 import { useToast } from '../hooks/useToast'
 import { Modal, Confirm } from '../components/Modal'
+import { ChangePasswordModal as UnifiedChangePasswordModal } from '../components/ChangePasswordModal'
 import { CascadingPicker, type CPGroup } from '../components/CascadingPicker'
 
 type TabKey = 'llm' | 'rag' | 'search'
@@ -202,7 +203,7 @@ function SidebarNav() {
       </aside>
 
       {showBindEmail && <BindEmailModal onClose={() => setShowBindEmail(false)} />}
-      {showChangePwd && <ChangePwdModal onClose={() => setShowChangePwd(false)} toast={toast} />}
+      {showChangePwd && <ChangePwdModal onClose={() => setShowChangePwd(false)} />}
       {showLogoutConfirm && (
         <Confirm title="退出登录" message="确认退出登录？退出后需重新登录才能使用。"
           loading={false} onConfirm={doLogout} onCancel={() => setShowLogoutConfirm(false)} />
@@ -215,51 +216,8 @@ function SidebarNav() {
   )
 }
 
-function ChangePwdModal({ onClose, toast }: { onClose: () => void; toast: (m: string, t?: any) => void }) {
-  const [oldPwd, setOldPwd] = useState('')
-  const [newPwd, setNewPwd] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault()
-    if (newPwd !== confirm) { toast('两次密码不一致', 'error'); return }
-    if (newPwd === oldPwd) { toast('新密码不能与旧密码相同', 'error'); return }
-    if (newPwd.length < 6) { toast('新密码至少 6 位', 'error'); return }
-    setLoading(true)
-    try {
-      await changePassword(oldPwd, newPwd)
-      clearAuthAndRedirect()
-    } catch (err: any) { toast(err.message, 'error') }
-    finally { setLoading(false) }
-  }
-
-  return (
-    <Modal title="修改密码" onClose={onClose} footer={
-      <>
-        <button className="btn btn-ghost" onClick={onClose} disabled={loading}>取消</button>
-        <button className="btn btn-primary" onClick={handleSubmit as any}
-          disabled={loading || !oldPwd || !newPwd || !confirm}>
-          {loading ? '修改中…' : '确认修改'}
-        </button>
-      </>
-    }>
-      <form onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label className="form-label">当前密码</label>
-          <input className="form-input" type="password" placeholder="输入当前密码" value={oldPwd} onChange={e => setOldPwd(e.target.value)} autoFocus />
-        </div>
-        <div className="form-group">
-          <label className="form-label">新密码</label>
-          <input className="form-input" type="password" placeholder="至少 6 位" value={newPwd} onChange={e => setNewPwd(e.target.value)} />
-        </div>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">确认新密码</label>
-          <input className="form-input" type="password" placeholder="再次输入新密码" value={confirm} onChange={e => setConfirm(e.target.value)} />
-        </div>
-      </form>
-    </Modal>
-  )
+function ChangePwdModal({ onClose }: { onClose: () => void }) {
+  return <UnifiedChangePasswordModal onClose={onClose} />
 }
 
 // ── Add LLM Config Modal ──────────────────────────────────────────────────

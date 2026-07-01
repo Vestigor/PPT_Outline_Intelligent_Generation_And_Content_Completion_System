@@ -642,6 +642,34 @@ input, textarea, select { font-family: inherit; }
   font-size: 12.5px; color: var(--warning); margin-bottom: 12px; line-height: 1.55;
 }
 
+.doc-category-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-1);
+}
+
+.doc-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.doc-category-header span:last-child {
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.doc-category-group > div:last-child {
+  padding: 6px;
+}
+
 /* ── Knowledge panel ────────────────────────────────────────────────────── */
 .knowledge-panel {
   width: 320px; flex-shrink: 0;

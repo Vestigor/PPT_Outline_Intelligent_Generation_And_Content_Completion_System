@@ -862,6 +862,20 @@ const DOC_STATUS: Record<string, { label: string; cls: string }> = {
   failed:     { label: '失败',     cls: 'badge-error' },
 }
 
+function groupDocumentsByCategory(files: KnowledgeFile[]): [string, KnowledgeFile[]][] {
+  const groups = new Map<string, KnowledgeFile[]>()
+  for (const file of files) {
+    const category = file.category?.trim() || 'default'
+    groups.set(category, [...(groups.get(category) ?? []), file])
+  }
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => a.localeCompare(b, 'zh-CN'))
+    .map(([category, docs]) => [
+      category,
+      docs.sort((a, b) => a.file_name.localeCompare(b.file_name, 'zh-CN')),
+    ])
+}
+
 function DocModal({
   sessionId, pendingDocs, onPendingChange, sessionRefs, onRefsChange, ragEnabled, onClose,
 }: {
@@ -954,6 +968,8 @@ function DocModal({
   }
 
   const availableLib = library.filter(f => !linkedIds.has(f.id))
+  const groupedLinkedDocs = groupDocumentsByCategory(linkedDocs)
+  const groupedAvailableLib = groupDocumentsByCategory(availableLib)
 
   return (
     <Modal title="关联知识文档" onClose={onClose} footer={
@@ -994,29 +1010,38 @@ function DocModal({
               </button>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {linkedDocs.map(doc => {
-                const ref = sessionRefs.find(r => r.knowledge_file_id === doc.id)
-                const st = DOC_STATUS[doc.status] ?? { label: doc.status, cls: 'badge-neutral' }
-                return (
-                  <div key={doc.id} className="file-item">
-                    <div className="file-item-icon"><FileText /></div>
-                    <div className="file-item-body">
-                      <div className="file-item-name">{doc.file_name}</div>
-                      <div className="file-item-meta">
-                        {formatSize(doc.size_bytes)} ·{' '}
-                        <span className={`badge ${st.cls}`} style={{ fontSize: 10, padding: '1px 5px' }}>{st.label}</span>
-                      </div>
-                    </div>
-                    <div className="file-item-actions">
-                      <button className="btn-icon" style={{ color: 'var(--error)' }}
-                        onClick={() => handleRemove(doc.id, ref?.id)}>
-                        <X style={{ width: 13, height: 13 }} />
-                      </button>
-                    </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {groupedLinkedDocs.map(([category, docs]) => (
+                <div key={category} className="doc-category-group">
+                  <div className="doc-category-header">
+                    <span>{category}</span><span>{docs.length} 个文档</span>
                   </div>
-                )
-              })}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {docs.map(doc => {
+                      const ref = sessionRefs.find(r => r.knowledge_file_id === doc.id)
+                      const st = DOC_STATUS[doc.status] ?? { label: doc.status, cls: 'badge-neutral' }
+                      return (
+                        <div key={doc.id} className="file-item">
+                          <div className="file-item-icon"><FileText /></div>
+                          <div className="file-item-body">
+                            <div className="file-item-name">{doc.file_name}</div>
+                            <div className="file-item-meta">
+                              {formatSize(doc.size_bytes)} ·{' '}
+                              <span className={`badge ${st.cls}`} style={{ fontSize: 10, padding: '1px 5px' }}>{st.label}</span>
+                            </div>
+                          </div>
+                          <div className="file-item-actions">
+                            <button className="btn-icon" style={{ color: 'var(--error)' }}
+                              onClick={() => handleRemove(doc.id, ref?.id)}>
+                              <X style={{ width: 13, height: 13 }} />
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </>
@@ -1031,27 +1056,36 @@ function DocModal({
               {library.length === 0 ? '知识库为空，请先上传文件' : '所有文件均已关联'}
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {availableLib.map(f => {
-                const st = DOC_STATUS[f.status] ?? { label: f.status, cls: 'badge-neutral' }
-                return (
-                  <div key={f.id} className="file-item" style={{ opacity: f.status !== 'ready' ? 0.65 : 1 }}>
-                    <div className="file-item-icon"><FileText /></div>
-                    <div className="file-item-body">
-                      <div className="file-item-name">{f.file_name}</div>
-                      <div className="file-item-meta">
-                        <span className={`badge ${st.cls}`} style={{ fontSize: 10, padding: '1px 5px' }}>{st.label}</span>
-                      </div>
-                    </div>
-                    <div className="file-item-actions">
-                      <button className="btn btn-sm btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }}
-                        onClick={() => handleAssociate(f.id)}>
-                        关联
-                      </button>
-                    </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {groupedAvailableLib.map(([category, docs]) => (
+                <div key={category} className="doc-category-group">
+                  <div className="doc-category-header">
+                    <span>{category}</span><span>{docs.length} 个文档</span>
                   </div>
-                )
-              })}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {docs.map(f => {
+                      const st = DOC_STATUS[f.status] ?? { label: f.status, cls: 'badge-neutral' }
+                      return (
+                        <div key={f.id} className="file-item" style={{ opacity: f.status !== 'ready' ? 0.65 : 1 }}>
+                          <div className="file-item-icon"><FileText /></div>
+                          <div className="file-item-body">
+                            <div className="file-item-name">{f.file_name}</div>
+                            <div className="file-item-meta">
+                              <span className={`badge ${st.cls}`} style={{ fontSize: 10, padding: '1px 5px' }}>{st.label}</span>
+                            </div>
+                          </div>
+                          <div className="file-item-actions">
+                            <button className="btn btn-sm btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }}
+                              onClick={() => handleAssociate(f.id)}>
+                              关联
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </>

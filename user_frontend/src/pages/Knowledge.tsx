@@ -7,11 +7,12 @@ import {
 } from 'lucide-react'
 import {
   listKnowledge, uploadKnowledge, deleteKnowledge, retryKnowledge, updateFileCategory,
-  logout, getToken, changePassword, deleteAccount, sendEmailCode, updateEmail, clearAuthAndRedirect,
+  logout, getToken, deleteAccount, sendEmailCode, updateEmail, clearAuthAndRedirect,
   type KnowledgeFile, type DocStatus,
 } from '../api'
 import { useToast } from '../hooks/useToast'
 import { Modal, Confirm } from '../components/Modal'
+import { ChangePasswordModal as UnifiedChangePasswordModal } from '../components/ChangePasswordModal'
 
 const STATUS_LABEL: Record<DocStatus, string> = {
   pending: '等待处理', processing: '处理中', ready: '已就绪', failed: '失败',
@@ -136,51 +137,7 @@ function UploadModal({ onClose, onUploaded }: {
 
 // ── Change Password Modal ─────────────────────────────────────────────────
 function ChangePasswordModal({ onClose }: { onClose: () => void }) {
-  const { toast } = useToast()
-  const [oldPwd, setOldPwd] = useState('')
-  const [newPwd, setNewPwd] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault()
-    if (newPwd !== confirm) { toast('两次密码不一致', 'error'); return }
-    if (newPwd === oldPwd) { toast('新密码不能与旧密码相同', 'error'); return }
-    if (newPwd.length < 6) { toast('新密码至少 6 位', 'error'); return }
-    setLoading(true)
-    try {
-      await changePassword(oldPwd, newPwd)
-      clearAuthAndRedirect()
-    } catch (err: any) { toast(err.message, 'error') }
-    finally { setLoading(false) }
-  }
-
-  return (
-    <Modal title="修改密码" onClose={onClose} footer={
-      <>
-        <button className="btn btn-ghost" onClick={onClose} disabled={loading}>取消</button>
-        <button className="btn btn-primary" onClick={handleSubmit as any}
-          disabled={loading || !oldPwd || !newPwd || !confirm}>
-          {loading ? '修改中…' : '确认修改'}
-        </button>
-      </>
-    }>
-      <form onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label className="form-label">当前密码</label>
-          <input className="form-input" type="password" placeholder="输入当前密码" value={oldPwd} onChange={e => setOldPwd(e.target.value)} autoFocus />
-        </div>
-        <div className="form-group">
-          <label className="form-label">新密码</label>
-          <input className="form-input" type="password" placeholder="至少 6 位" value={newPwd} onChange={e => setNewPwd(e.target.value)} />
-        </div>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">确认新密码</label>
-          <input className="form-input" type="password" placeholder="再次输入新密码" value={confirm} onChange={e => setConfirm(e.target.value)} />
-        </div>
-      </form>
-    </Modal>
-  )
+  return <UnifiedChangePasswordModal onClose={onClose} />
 }
 
 // ── Bind Email Modal ──────────────────────────────────────────────────────
