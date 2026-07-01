@@ -18,7 +18,7 @@ import {
   listSessionRefs, addSessionRefs, removeSessionRef,
   listKnowledge, uploadKnowledge, updateSessionSettings, logout, getToken,
   listUserLLMConfigs, changePassword, deleteAccount, getActiveTask,
-  updateOutline, confirmOutline, sendEmailCode, updateEmail,
+  updateOutline, confirmOutline, sendEmailCode, updateEmail, clearAuthAndRedirect,
   type SessionSummary, type Message, type SessionDetail,
   type KnowledgeFile, type KnowledgeRef, type UserLLMConfig,
 } from '../api'
@@ -687,12 +687,12 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!allPass)             { toast('新密码不符合规范', 'error'); return }
+    if (newPwd === oldPwd)    { toast('新密码不能与旧密码相同', 'error'); return }
     if (newPwd !== confirm)   { toast('两次密码不一致', 'error'); return }
     setLoading(true)
     try {
       await changePassword(oldPwd, newPwd)
-      toast('密码修改成功', 'success')
-      onClose()
+      clearAuthAndRedirect()
     } catch (err: any) {
       toast(err.message, 'error')
     } finally {
@@ -1427,17 +1427,13 @@ export function Chat() {
 
   async function doLogout() {
     try { await logout(getToken()) } catch {}
-    localStorage.removeItem('token')
-    localStorage.removeItem('username')
-    navigate('/login', { replace: true })
+    clearAuthAndRedirect()
   }
 
   async function doDeleteAccount() {
     try {
       await deleteAccount()
-      localStorage.removeItem('token')
-      localStorage.removeItem('username')
-      navigate('/login', { replace: true })
+      clearAuthAndRedirect()
     } catch (err: any) {
       if (err.message !== '_auth_redirect') toast(err.message, 'error')
     }

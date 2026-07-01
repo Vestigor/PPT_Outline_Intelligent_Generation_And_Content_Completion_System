@@ -82,9 +82,16 @@ async def update_email(
 async def change_password(
     body: ChangePasswordRequest,
     current_user: CurrentUser,
+    token: Token,
     svc: UserServiceDepend,
 ) -> Result[None]:
-    await svc.change_password(current_user.id, body.old_password, body.new_password)
+    await svc.change_password(
+        current_user.id,
+        body.old_password,
+        body.new_password,
+        token,
+        body.refresh_token,
+    )
     return Result.success()
 
 
@@ -95,8 +102,10 @@ async def logout(token: Token, svc: UserServiceDepend) -> Result[None]:
 
 
 @router.delete("", response_model=Result[None], summary="注销账户")
-async def delete_account(current_user: CurrentUser, svc: UserServiceDepend) -> Result[None]:
-    await svc.delete_account(current_user.id)
+async def delete_account(
+    current_user: CurrentUser, token: Token, svc: UserServiceDepend
+) -> Result[None]:
+    await svc.delete_account(current_user.id, token)
     return Result.success()
 
 

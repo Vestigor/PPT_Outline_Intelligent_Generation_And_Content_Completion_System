@@ -1,12 +1,14 @@
 import { useState, type ReactNode } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Cpu, LogOut, Presentation, KeyRound,
   Check, AlertCircle, Eye, EyeOff, ChevronUp, Mail,
 } from 'lucide-react'
 import { Modal, Confirm } from './Modal'
 import { useToast } from '../hooks/useToast'
-import { changePassword, sendEmailCode, updateEmail } from '../api'
+import {
+  changePassword, sendEmailCode, updateEmail, logout, clearAuthAndRedirect,
+} from '../api'
 
 interface Props {
   children: ReactNode
@@ -82,12 +84,12 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!allPass)           { toast('新密码不符合规范', 'error'); return }
+    if (newPwd === oldPwd)  { toast('新密码不能与旧密码相同', 'error'); return }
     if (newPwd !== confirm) { toast('两次密码不一致', 'error'); return }
     setLoading(true)
     try {
       await changePassword(oldPwd, newPwd)
-      toast('密码修改成功', 'success')
-      onClose()
+      clearAuthAndRedirect()
     } catch (err: any) {
       toast(err.message, 'error')
     } finally {
@@ -253,7 +255,6 @@ function BindEmailModal({ onClose }: { onClose: () => void }) {
 
 // ── Layout ────────────────────────────────────────────────────────────────
 export function Layout({ children, title, subtitle, actions }: Props) {
-  const navigate = useNavigate()
   const username = localStorage.getItem('admin_username') ?? 'Admin'
   const role     = localStorage.getItem('admin_role') ?? 'admin'
 
@@ -261,12 +262,9 @@ export function Layout({ children, title, subtitle, actions }: Props) {
   const [showBindEmail,     setShowBindEmail]     = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
 
-  function doLogout() {
-    localStorage.removeItem('admin_token')
-    localStorage.removeItem('admin_refresh_token')
-    localStorage.removeItem('admin_username')
-    localStorage.removeItem('admin_role')
-    navigate('/login')
+  async function doLogout() {
+    try { await logout() } catch {}
+    clearAuthAndRedirect()
   }
 
   const ROLE_LABEL: Record<string, string> = {

@@ -5,17 +5,19 @@ const TOKEN_EXPIRED_CODE = 2010
 
 let _redirecting = false
 
-function handleAuthError() {
+export function clearAuthAndRedirect() {
   if (_redirecting) return
   _redirecting = true
   localStorage.removeItem('admin_token')
   localStorage.removeItem('admin_refresh_token')
   localStorage.removeItem('admin_username')
   localStorage.removeItem('admin_role')
-  setTimeout(() => { window.location.href = '/login'; _redirecting = false }, 0)
+  setTimeout(() => { window.location.href = '/admin/login'; _redirecting = false }, 0)
 }
 
-function getToken()        { return localStorage.getItem('admin_token') ?? '' }
+function handleAuthError() { clearAuthAndRedirect() }
+
+export function getToken() { return localStorage.getItem('admin_token') ?? '' }
 function getRefreshToken() { return localStorage.getItem('admin_refresh_token') ?? '' }
 
 async function _refreshTokenRaw(): Promise<{ access_token: string; refresh_token: string }> {
@@ -81,6 +83,7 @@ export interface TokenResponse {
 }
 export const login = (username: string, password: string) =>
   post<TokenResponse>('/users/login', { username, password })
+export const logout = () => post<null>('/users/logout')
 export const sendEmailCode = (email: string, purpose: 'register' | 'reset_password' | 'bind_email') =>
   post<null>('/users/send-email-code', { email, purpose })
 export const forgotPassword = (email: string, code: string, new_password: string) =>
@@ -118,7 +121,11 @@ export const resetPassword = (user_id: number, new_password: string) =>
   post<null>('/users/admin/change_password', { user_id, new_password })
 export const getMe = () => get<UserResponse>('/users/me')
 export const changePassword = (old_password: string, new_password: string) =>
-  put<null>('/users/me/password', { old_password, new_password })
+  put<null>('/users/me/password', {
+    old_password,
+    new_password,
+    refresh_token: getRefreshToken() || null,
+  })
 
 // ── Providers ─────────────────────────────────────────────────────────
 export interface LLMModel {

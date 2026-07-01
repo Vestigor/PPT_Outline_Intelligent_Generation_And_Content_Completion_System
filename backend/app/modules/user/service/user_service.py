@@ -191,7 +191,14 @@ class UserService:
         await self._repo.update_email(user_id, email, False)
         logger.info("Admin set email for user_id=%d email=%s", user_id, email)
 
-    async def change_password(self, user_id: int, old_password: str, new_password: str) -> None:
+    async def change_password(
+        self,
+        user_id: int,
+        old_password: str,
+        new_password: str,
+        access_token: str,
+        refresh_token: str | None = None,
+    ) -> None:
         """修改当前用户密码（需提供旧密码）。"""
         logger.info("Password change attempt: user_id=%d", user_id)
         user = await self._repo.find_by_id(user_id)
@@ -199,7 +206,10 @@ class UserService:
             raise BusinessException.exc(StatusCode.USER_NOT_FOUND.value)
         if not verify_password(old_password, user.password_hash):
             raise BusinessException.exc(StatusCode.INVALID_OLD_PASSWORD.value)
+        if verify_password(new_password, user.password_hash):
+            raise BusinessException.exc(StatusCode.SAME_PASSWORD.value)
         await self._repo.update_password(user_id, hash_password(new_password))
+        await self.blacklist_tokens(access_token, refresh_token)
         logger.info("Password changed: user_id=%d", user_id)
 
     async def logout(self, token: str) -> None:
@@ -209,9 +219,27 @@ class UserService:
             await redis_helper.set(f"jwt_blacklist:{token}", "1", ttl=ttl)
             logger.info("Token blacklisted (logout)")
 
-    async def delete_account(self, user_id: int) -> None:
+    async def blacklist_tokens(
+        self, access_token: str, refresh_token: str | None = None
+    ) -> None:
+        """立即失效当前访问令牌及客户端提供的刷新令牌。"""
+        if access_token:
+            await redis_helper.set(
+                f"jwt_blacklist:{access_token}",
+                "1",
+                ttl=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            )
+        if refresh_token:
+            await redis_helper.set(
+                f"jwt_blacklist:{refresh_token}",
+                "1",
+                ttl=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+            )
+
+    async def delete_account(self, user_id: int, access_token: str) -> None:
         """删除当前用户。"""
         logger.info("Account deletion: user_id=%d", user_id)
+        await self.blacklist_tokens(access_token)
         deleted = await self._repo.delete_by_id(user_id)
         if not deleted:
             raise BusinessException.exc(StatusCode.USER_NOT_FOUND.value)

@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import {
   listKnowledge, uploadKnowledge, deleteKnowledge, retryKnowledge, updateFileCategory,
-  logout, getToken, changePassword, deleteAccount, sendEmailCode, updateEmail,
+  logout, getToken, changePassword, deleteAccount, sendEmailCode, updateEmail, clearAuthAndRedirect,
   type KnowledgeFile, type DocStatus,
 } from '../api'
 import { useToast } from '../hooks/useToast'
@@ -145,12 +145,12 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (newPwd !== confirm) { toast('两次密码不一致', 'error'); return }
+    if (newPwd === oldPwd) { toast('新密码不能与旧密码相同', 'error'); return }
     if (newPwd.length < 6) { toast('新密码至少 6 位', 'error'); return }
     setLoading(true)
     try {
       await changePassword(oldPwd, newPwd)
-      toast('密码修改成功', 'success')
-      onClose()
+      clearAuthAndRedirect()
     } catch (err: any) { toast(err.message, 'error') }
     finally { setLoading(false) }
   }
@@ -371,16 +371,13 @@ export function Knowledge() {
 
   async function doLogout() {
     try { await logout(getToken()) } catch {}
-    localStorage.removeItem('token')
-    localStorage.removeItem('username')
-    navigate('/login', { replace: true })
+    clearAuthAndRedirect()
   }
 
   async function doDeleteAccount() {
     try {
       await deleteAccount()
-      localStorage.removeItem('token'); localStorage.removeItem('username')
-      navigate('/login', { replace: true })
+      clearAuthAndRedirect()
     } catch (err: any) { toast(err.message, 'error') }
   }
 

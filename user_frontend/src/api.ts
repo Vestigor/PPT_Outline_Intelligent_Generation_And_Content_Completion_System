@@ -7,7 +7,7 @@ const TOKEN_EXPIRED_CODE = 2010
 
 let _redirecting = false
 
-function handleAuthError() {
+export function clearAuthAndRedirect() {
   if (_redirecting) return
   _redirecting = true
   localStorage.removeItem('token')
@@ -15,6 +15,8 @@ function handleAuthError() {
   localStorage.removeItem('username')
   setTimeout(() => { window.location.href = '/login'; _redirecting = false }, 0)
 }
+
+function handleAuthError() { clearAuthAndRedirect() }
 
 export function getToken()        { return localStorage.getItem('token') ?? '' }
 export function getRefreshToken() { return localStorage.getItem('refresh_token') ?? '' }
@@ -124,7 +126,11 @@ export const forgotPassword = (email: string, code: string, new_password: string
   post<null>('/users/forgot-password', { email, code, new_password })
 
 export const changePassword = (old_password: string, new_password: string) =>
-  put<null>('/users/me/password', { old_password, new_password })
+  put<null>('/users/me/password', {
+    old_password,
+    new_password,
+    refresh_token: getRefreshToken() || null,
+  })
 
 export const updateEmail = (new_email: string, code: string, password: string) =>
   put<null>('/users/me/email', { new_email, code, password })

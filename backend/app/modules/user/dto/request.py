@@ -61,11 +61,10 @@ class ChangePasswordRequest(BaseModel):
 
     @field_validator("new_password")
     @classmethod
-    def passwords_must_differ(cls, v: str, info: object) -> str:
-        _check_password_strength(v)
-        if getattr(info, "data", {}).get("old_password") == v:
-            raise BusinessException(StatusCode.SAME_PASSWORD.value)
-        return v
+    def password_strength(cls, v: str) -> str:
+        return _check_password_strength(v)
+
+    refresh_token: str | None = None
 
 
 class RefreshTokenRequest(BaseModel):

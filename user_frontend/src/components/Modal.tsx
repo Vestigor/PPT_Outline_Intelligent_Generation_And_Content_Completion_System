@@ -5,7 +5,7 @@ export function Modal({ title, onClose, footer, children, wide, maxWidth }: {
   title: string; onClose: () => void; footer?: ReactNode; children: ReactNode; wide?: boolean; maxWidth?: number | string
 }) {
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay">
       <div className={`modal-box${wide ? ' wide' : ''}`} style={maxWidth != null ? { maxWidth } : undefined}>
         <div className="modal-header">
           <span className="modal-title">{title}</span>
