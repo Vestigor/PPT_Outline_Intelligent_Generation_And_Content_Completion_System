@@ -7,7 +7,11 @@ from app.common.exception.code import StatusCode
 from app.common.exception.exception import BusinessException
 from app.common.model.entity.user import UserRole
 from app.config import settings
-from app.infrastructure.email.email_service import send_verification_code, send_password_reset_code
+from app.infrastructure.email.email_service import (
+    send_bind_email_code,
+    send_password_reset_code,
+    send_verification_code,
+)
 from app.infrastructure.log.logging_config import get_logger
 from app.infrastructure.redis.redis import redis_helper
 from app.infrastructure.security.security import (
@@ -72,8 +76,10 @@ class UserService:
         try:
             if purpose == "register":
                 await send_verification_code(email, code)
-            else:
+            elif purpose == "reset_password":
                 await send_password_reset_code(email, code)
+            else:
+                await send_bind_email_code(email, code)
         except Exception as exc:
             logger.error("Failed to send email to %s: %s", email, exc)
             await redis_helper.delete(key)
