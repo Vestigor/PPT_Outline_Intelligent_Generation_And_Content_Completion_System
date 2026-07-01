@@ -805,6 +805,14 @@ class TaskWorker:
                 context_parts.append(f"**网络搜索参考资料：**\n{deepsearch_context}")
             reference_context = "\n\n".join(context_parts) if context_parts else "（无外部参考资料）"
 
+            # 引用来源必须来自本次实际传给模型的检索结果。提示词只能降低幻觉概率，
+            # 不能作为可信边界，因此在模型返回后还要用这份白名单做确定性校验。
+            allowed_citation_sources: dict[str, set[str]] = {
+                "rag": self._extract_context_sources(rag_context),
+                "web": self._extract_context_sources(deepsearch_context),
+                "report": set(),
+            }
+
             kwargs: dict[str, str] = {
                 "outline_json": json.dumps(outline_data, ensure_ascii=False),
                 "reference_context": reference_context,
@@ -812,6 +820,9 @@ class TaskWorker:
             if session.session_type == SessionType.REPORT_DRIVEN:
                 report = await report_repo.find_by_session(session.id)
                 kwargs["report_text"] = (report.clean_text or "")[:8000] if report else ""
+                kwargs["report_file_name"] = report.file_name if report else "用户上传报告"
+                if report:
+                    allowed_citation_sources["report"].add(report.file_name)
             else:
                 kwargs.update({
                     "topic": req.get("topic", outline_topic),
@@ -836,6 +847,7 @@ class TaskWorker:
             # 校正引用风格：LLM 常把不含数字的来源误标为 "data"（数据引用）。
             # 用确定性规则兜底，不依赖模型自觉。
             self._normalize_citation_styles(slides_json, task_id)
+            self._sanitize_citations(slides_json, allowed_citation_sources, task_id)
 
             logger.info(
                 "Slide batch task=%d: parsed JSON, top-level keys=%s, persisting slide",
@@ -912,6 +924,27 @@ class TaskWorker:
                 await self._mark_failed_and_notify(task_id, "未找到当前幻灯片")
                 return
 
+            # 修改流程同样不能信任模型返回的 source。RAG 白名单以会话实际绑定的
+            # 文档原始文件名为准；已存在的 Web 引用仅用于保持未修改页面的引用。
+            from app.modules.knowledge_base.repository.knowledge_repository import (
+                DocumentFileRepository,
+            )
+            from app.modules.session.repository.session_repository import (
+                KnowledgeRefRepository,
+            )
+
+            knowledge_file_ids = await KnowledgeRefRepository(db).find_file_ids_by_session(
+                session.id
+            )
+            knowledge_names = await DocumentFileRepository(db).find_names_by_ids(
+                knowledge_file_ids
+            )
+            allowed_citation_sources: dict[str, set[str]] = {
+                "rag": set(knowledge_names.values()),
+                "web": self._collect_existing_sources(current_slide.content, "web"),
+                "report": set(),
+            }
+
             modification_request = extra.get("modification_request", "")
             # Fallback: if extra was lost (e.g. task recovered from DB), read from trigger message
             if not modification_request and task.trigger_message_id:
@@ -925,6 +958,8 @@ class TaskWorker:
             if session.session_type == SessionType.REPORT_DRIVEN:
                 report = await report_repo.find_by_session(session.id)
                 kwargs["report_text"] = (report.clean_text or "")[:6000] if report else ""
+                if report:
+                    allowed_citation_sources["report"].add(report.file_name)
 
             prompt = PromptLoader.load(
                 "slide_modify", session_type=session.session_type, **kwargs
@@ -941,6 +976,7 @@ class TaskWorker:
 
             # 与首次生成一致：校正被误标的 "data" 引用风格
             self._normalize_citation_styles(slides_json, task_id)
+            self._sanitize_citations(slides_json, allowed_citation_sources, task_id)
 
             version = await slide_repo.get_next_version(session.id)
             slide = await slide_repo.create(session.id, version, slides_json)
@@ -1408,6 +1444,123 @@ class TaskWorker:
             logger.info(
                 "Slide batch task=%d: downgraded %d mislabeled 'data' citation(s) → 'summary'",
                 task_id, fixed,
+            )
+
+    @staticmethod
+    def _extract_context_sources(context: str) -> set[str]:
+        """提取检索上下文中由服务端写入的 ``[来源: ...]`` 来源白名单。"""
+        import re
+
+        if not context:
+            return set()
+        return {
+            source.strip()
+            for source in re.findall(r"^\[来源:\s*(.+?)\]\s*$", context, flags=re.MULTILINE)
+            if source.strip()
+        }
+
+    @staticmethod
+    def _collect_existing_sources(slides_json: dict, source_type: str) -> set[str]:
+        """收集已持久化幻灯片中特定类型的来源，用于修改时保留可信旧引用。"""
+        sources: set[str] = set()
+        slides = slides_json.get("slides") if isinstance(slides_json, dict) else None
+        if not isinstance(slides, list):
+            return sources
+        for slide in slides:
+            refs = slide.get("references") if isinstance(slide, dict) else None
+            if not isinstance(refs, list):
+                continue
+            for ref in refs:
+                if not isinstance(ref, dict) or ref.get("source_type") != source_type:
+                    continue
+                source = str(ref.get("source") or "").strip()
+                if source:
+                    sources.add(source)
+        return sources
+
+    @staticmethod
+    def _sanitize_citations(
+        slides_json: dict,
+        allowed_sources: dict[str, set[str]],
+        task_id: int,
+    ) -> None:
+        """
+        删除模型伪造的来源，并同步清理/重编号正文中的 ``[N]`` 标记。
+
+        来源名称只能由服务端检索结果或上传报告元数据提供。模型输出的 source
+        不在对应 source_type 白名单中时，一律视为不可信，不能进入持久化结果。
+        """
+        import re
+
+        slides = slides_json.get("slides")
+        if not isinstance(slides, list):
+            return
+
+        marker = re.compile(r"\[(\d+)]")
+        removed = 0
+
+        def rewrite_markers(value, number_map: dict[int, int]):
+            if isinstance(value, str):
+                return marker.sub(
+                    lambda match: (
+                        f"[{number_map[int(match.group(1))]}]"
+                        if int(match.group(1)) in number_map else ""
+                    ),
+                    value,
+                )
+            if isinstance(value, list):
+                return [rewrite_markers(item, number_map) for item in value]
+            if isinstance(value, dict):
+                return {
+                    key: (item if key == "references" else rewrite_markers(item, number_map))
+                    for key, item in value.items()
+                }
+            return value
+
+        for slide in slides:
+            if not isinstance(slide, dict):
+                continue
+            refs = slide.get("references")
+            if not isinstance(refs, list):
+                slide["references"] = []
+                continue
+
+            valid_refs: list[dict] = []
+            number_map: dict[int, int] = {}
+            for ref in refs:
+                if not isinstance(ref, dict):
+                    removed += 1
+                    continue
+                source_type = str(ref.get("source_type") or "").strip().lower()
+                source = str(ref.get("source") or "").strip()
+                old_number = ref.get("ref_number")
+                try:
+                    old_number = int(old_number)
+                except (TypeError, ValueError):
+                    removed += 1
+                    continue
+
+                if source not in allowed_sources.get(source_type, set()):
+                    removed += 1
+                    continue
+
+                new_number = len(valid_refs) + 1
+                number_map[old_number] = new_number
+                cleaned = dict(ref)
+                cleaned["ref_number"] = new_number
+                cleaned["source_type"] = source_type
+                cleaned["source"] = source
+                valid_refs.append(cleaned)
+
+            slide["references"] = valid_refs
+            rewritten = rewrite_markers(slide, number_map)
+            slide.clear()
+            slide.update(rewritten)
+
+        if removed:
+            logger.warning(
+                "Slide batch task=%d: removed %d citation(s) outside trusted source whitelist",
+                task_id, removed,
             )
 
     # ──────────────────────────────────────────────

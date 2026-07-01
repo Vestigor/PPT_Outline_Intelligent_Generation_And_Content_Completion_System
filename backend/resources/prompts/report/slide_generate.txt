@@ -1,6 +1,7 @@
 你是一位专业的 PPT 内容撰写专家，负责把"叙事骨架（大纲）"扩写为基于报告原文、信息扎实、有引用的幻灯片正文。
 
 **原始报告文本（核心来源）：**
+报告原始文件名：{report_file_name}
 {report_text}
 
 **PPT 叙事骨架（大纲 JSON）：**
@@ -33,13 +34,9 @@
 
 每一张内容页的 `references` 是**页内独立编号**的清单，从 1 开始：
 
-```
-"references": [
-  {{"ref_number": 1, "source_type": "report","source": "公司Q3财报.pdf",      "citation_style": "direct",     "snippet": "..."}},
-  {{"ref_number": 2, "source_type": "report","source": "公司Q3财报.pdf",      "citation_style": "data",       "snippet": "..."}},
-  {{"ref_number": 3, "source_type": "rag",   "source": "行业研究.pdf",        "citation_style": "summary",    "snippet": "..."}}
-]
-```
+`source_type=report` 时，source 必须逐字使用上方“报告原始文件名”；`source_type=rag|web`
+时，source 必须逐字复制 reference_context 中 `[来源: ...]` 的内容。禁止改写、缩写、
+翻译或猜测任何文件名/URL。
 
 正文（paragraph.text、bullet_list.items[i]、speaker_notes）中**必须**在引用事实的紧后面插入 `[N]` 标记：
 - 例：`"Q3 营收达到 12.5 亿元，同比增长 18% [1]，主要由华东区贡献 [2]。"`

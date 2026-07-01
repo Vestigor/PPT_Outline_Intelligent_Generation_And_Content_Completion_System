@@ -35,13 +35,8 @@
 
 每一张内容页的 `references` 是**页内独立编号**的清单，从 1 开始：
 
-```
-"references": [
-  {{"ref_number": 1, "source_type": "rag", "source": "AI发展史.pdf",      "citation_style": "direct",     "snippet": "..."}},
-  {{"ref_number": 2, "source_type": "web", "source": "https://example.com","citation_style": "data",       "snippet": "..."}},
-  {{"ref_number": 3, "source_type": "rag", "source": "深度学习综述.pdf",  "citation_style": "summary",    "snippet": "..."}}
-]
-```
+`source` 必须逐字复制 reference_context 中 `[来源: ...]` 的内容，禁止改写、缩写、
+翻译或根据正文猜测文件名/URL。reference_context 没有给出的来源不得写入 references。
 
 正文（paragraph.text、bullet_list.items[i]、speaker_notes）中**必须**在引用事实的紧后面插入 `[N]` 标记：
 - 例：`"反向传播算法在 1986 年由 Rumelhart 等人系统化提出 [1]，使联结主义重新获得关注 [1][2]。"`
