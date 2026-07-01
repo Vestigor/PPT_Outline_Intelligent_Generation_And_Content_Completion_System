@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 # ──────────────────────────────────────────────
@@ -10,7 +10,7 @@ from pydantic import BaseModel, field_validator
 class CreateUserLLMConfigRequest(BaseModel):
     provider_model_id: int
     api_key: str
-    alias: str | None = None
+    alias: str | None = Field(default=None, max_length=64)
     is_default: bool = False
 
     @field_validator("api_key")
@@ -20,11 +20,27 @@ class CreateUserLLMConfigRequest(BaseModel):
             raise ValueError("api_key 不能为空")
         return v
 
+    @field_validator("alias", mode="before")
+    @classmethod
+    def normalize_alias(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        normalized = str(v).strip()
+        return normalized or None
+
 
 class UpdateUserLLMConfigRequest(BaseModel):
     api_key: str | None = None
-    alias: str | None = None
+    alias: str | None = Field(default=None, max_length=64)
     is_default: bool | None = None
+
+    @field_validator("alias", mode="before")
+    @classmethod
+    def normalize_alias(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        normalized = str(v).strip()
+        return normalized or None
 
 
 # ──────────────────────────────────────────────

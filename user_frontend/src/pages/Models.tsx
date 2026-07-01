@@ -343,6 +343,7 @@ function AddLLMModal({ providers, loading: saving, onClose, onSubmit }: {
         <label className="form-label">别名（可选）</label>
         <input className="form-input" placeholder="为这个配置取个便于识别的名称"
           value={alias} onChange={e => setAlias(e.target.value)} />
+        <div className="form-hint">留空保存后，别名将设置为 None。</div>
       </div>
       <div className="form-group" style={{ marginBottom: 0 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
@@ -394,6 +395,7 @@ function EditLLMModal({ config, loading: saving, onClose, onSubmit }: {
         <label className="form-label">别名</label>
         <input className="form-input" placeholder="配置别名"
           value={alias} onChange={e => setAlias(e.target.value)} />
+        <div className="form-hint">留空保存后，别名将设置为 None。</div>
       </div>
     </Modal>
   )
@@ -485,7 +487,7 @@ export function Models() {
     setLlmSaving(true)
     try {
       const forceDefault = llmConfigs.length === 0 ? true : is_default
-      const cfg = await createUserLLMConfig(provider_model_id, api_key, alias || null, forceDefault)
+      const cfg = await createUserLLMConfig(provider_model_id, api_key, alias.trim() || null, forceDefault)
       setLlmConfigs(prev => [...prev, cfg])
       setExpandedProviders(prev => new Set([...prev, cfg.provider_name]))
       toast('配置添加成功', 'success')
@@ -500,7 +502,7 @@ export function Models() {
     try {
       const data: { api_key?: string; alias?: string | null } = {}
       if (api_key) data.api_key = api_key
-      data.alias = alias || null
+      data.alias = alias.trim() || null
       const cfg = await updateUserLLMConfig(editLLM.id, data)
       setLlmConfigs(prev => prev.map(c => c.id === cfg.id ? cfg : c))
       toast('配置已更新', 'success')

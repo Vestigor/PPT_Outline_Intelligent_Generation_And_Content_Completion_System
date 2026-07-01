@@ -113,7 +113,12 @@ async def update_user_llm_config(
     svc: ModelServiceDepend,
 ) -> Result[UserLLMConfigResponse]:
     result = await svc.update_user_llm_config(
-        current_user.id, config_id, body.api_key, body.alias, body.is_default
+        current_user.id,
+        config_id,
+        body.api_key,
+        body.alias,
+        "alias" in body.model_fields_set,
+        body.is_default,
     )
     return Result.success(result)
 

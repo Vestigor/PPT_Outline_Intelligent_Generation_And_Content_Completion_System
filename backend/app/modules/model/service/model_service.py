@@ -158,6 +158,7 @@ class ModelService:
         config_id: int,
         api_key: str | None,
         alias: str | None,
+        alias_provided: bool,
         is_default: bool | None,
     ) -> UserLLMConfigResponse:
         cfg = await self._user_llm_repo.find_by_id_and_user(config_id, user_id)
@@ -174,7 +175,7 @@ class ModelService:
         if api_key is not None:
             await self._validate_llm_api_key(api_key, cfg.base_url, cfg.model_name)
             cfg.api_key = encrypt_api_key(api_key)
-        if alias is not None:
+        if alias_provided:
             cfg.alias = alias
         if is_default is True:
             await self._user_llm_repo.clear_defaults(user_id)

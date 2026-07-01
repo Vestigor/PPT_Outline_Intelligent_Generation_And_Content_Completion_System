@@ -185,7 +185,12 @@ class LLMClient:
     @staticmethod
     def _parse_json(raw: str) -> dict:
         """
-        解析 LLM 输出的 JSON：处理 ```json 包裹、提取首个平衡 { ... } 块。
+        解析 LLM 输出的 JSON 对象。
+
+        处理 ```json 包裹、提取首个平衡 { ... } 块；部分
+        OpenAI 兼容服务即使请求了 json_object，仍会返回单元素对象
+        数组，此时兼容解包。其他非对象顶层结构会转换为可读错误，
+        避免业务层调用 .get() 时抛出 AttributeError。
         """
         text = raw.strip()
         if text.startswith("```"):
@@ -193,7 +198,7 @@ class LLMClient:
             end = -1 if lines[-1].strip().startswith("```") else len(lines)
             text = "\n".join(lines[1:end]).strip()
         try:
-            return json.loads(text)
+            parsed = json.loads(text)
         except json.JSONDecodeError:
             start = text.find("{")
             if start == -1:
@@ -219,9 +224,25 @@ class LLMClient:
                     elif ch == "}":
                         depth -= 1
                         if depth == 0:
-                            return json.loads(text[start : i + 1])
-            logger.error("LLM JSON unbalanced: %s", text[:200])
-            raise
+                            parsed = json.loads(text[start : i + 1])
+                            break
+            else:
+                logger.error("LLM JSON unbalanced: %s", text[:200])
+                raise
+
+        if isinstance(parsed, list) and len(parsed) == 1 and isinstance(parsed[0], dict):
+            logger.warning("LLM returned a single-element JSON array; unwrapping it")
+            parsed = parsed[0]
+
+        if not isinstance(parsed, dict):
+            logger.error(
+                "LLM response must be a JSON object, got %s: %s",
+                type(parsed).__name__,
+                text[:200],
+            )
+            raise LLMClientError("模型返回格式错误，请重试或更换模型。")
+
+        return parsed
 
     # ──────────────────────────────────────────────
     # 私有工具
