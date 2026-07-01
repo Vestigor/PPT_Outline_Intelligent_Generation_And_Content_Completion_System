@@ -5,7 +5,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   Plus, MessageSquare, Database, Layers, BookOpen, Download, Send,
-  Paperclip, Zap, X, Trash2, ChevronDown, ChevronUp,
+  Paperclip, Zap, X, Trash2, ChevronDown, ChevronRight, ChevronUp,
   Cpu, Check, KeyRound, LogOut, UserX, AlertCircle, Upload, FileText,
   Globe, Pencil, PlusCircle, MinusCircle, Eye, EyeOff, Mail,
 } from 'lucide-react'
@@ -895,6 +895,7 @@ function DocModal({
   const [uploadFile,     setUploadFile]     = useState<File | null>(null)
   const [uploadCategory, setUploadCategory] = useState('')
   const [showUploadForm, setShowUploadForm] = useState(false)
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
 
   const linkedDocs: KnowledgeFile[] = sessionId
@@ -968,8 +969,16 @@ function DocModal({
   }
 
   const availableLib = library.filter(f => !linkedIds.has(f.id))
-  const groupedLinkedDocs = groupDocumentsByCategory(linkedDocs)
   const groupedAvailableLib = groupDocumentsByCategory(availableLib)
+
+  function toggleCategory(category: string) {
+    setCollapsedCategories(prev => {
+      const next = new Set(prev)
+      if (next.has(category)) next.delete(category)
+      else next.add(category)
+      return next
+    })
+  }
 
   return (
     <Modal title="关联知识文档" onClose={onClose} footer={
@@ -1010,38 +1019,29 @@ function DocModal({
               </button>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {groupedLinkedDocs.map(([category, docs]) => (
-                <div key={category} className="doc-category-group">
-                  <div className="doc-category-header">
-                    <span>{category}</span><span>{docs.length} 个文档</span>
+            <div className="doc-list-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {linkedDocs.map(doc => {
+                const ref = sessionRefs.find(r => r.knowledge_file_id === doc.id)
+                const st = DOC_STATUS[doc.status] ?? { label: doc.status, cls: 'badge-neutral' }
+                return (
+                  <div key={doc.id} className="file-item">
+                    <div className="file-item-icon"><FileText /></div>
+                    <div className="file-item-body">
+                      <div className="file-item-name">{doc.file_name}</div>
+                      <div className="file-item-meta">
+                        {formatSize(doc.size_bytes)} ·{' '}
+                        <span className={`badge ${st.cls}`} style={{ fontSize: 10, padding: '1px 5px' }}>{st.label}</span>
+                      </div>
+                    </div>
+                    <div className="file-item-actions">
+                      <button className="btn-icon" style={{ color: 'var(--error)' }}
+                        onClick={() => handleRemove(doc.id, ref?.id)}>
+                        <X style={{ width: 13, height: 13 }} />
+                      </button>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {docs.map(doc => {
-                      const ref = sessionRefs.find(r => r.knowledge_file_id === doc.id)
-                      const st = DOC_STATUS[doc.status] ?? { label: doc.status, cls: 'badge-neutral' }
-                      return (
-                        <div key={doc.id} className="file-item">
-                          <div className="file-item-icon"><FileText /></div>
-                          <div className="file-item-body">
-                            <div className="file-item-name">{doc.file_name}</div>
-                            <div className="file-item-meta">
-                              {formatSize(doc.size_bytes)} ·{' '}
-                              <span className={`badge ${st.cls}`} style={{ fontSize: 10, padding: '1px 5px' }}>{st.label}</span>
-                            </div>
-                          </div>
-                          <div className="file-item-actions">
-                            <button className="btn-icon" style={{ color: 'var(--error)' }}
-                              onClick={() => handleRemove(doc.id, ref?.id)}>
-                              <X style={{ width: 13, height: 13 }} />
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </>
@@ -1056,13 +1056,19 @@ function DocModal({
               {library.length === 0 ? '知识库为空，请先上传文件' : '所有文件均已关联'}
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {groupedAvailableLib.map(([category, docs]) => (
+            <div className="doc-list-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {groupedAvailableLib.map(([category, docs]) => {
+                const collapsed = collapsedCategories.has(category)
+                return (
                 <div key={category} className="doc-category-group">
-                  <div className="doc-category-header">
-                    <span>{category}</span><span>{docs.length} 个文档</span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <button type="button" className="doc-category-header" onClick={() => toggleCategory(category)}
+                    aria-expanded={!collapsed}>
+                    <span className="doc-category-title">
+                      {collapsed ? <ChevronRight /> : <ChevronDown />}{category}
+                    </span>
+                    <span>{docs.length} 个文档</span>
+                  </button>
+                  {!collapsed && <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {docs.map(f => {
                       const st = DOC_STATUS[f.status] ?? { label: f.status, cls: 'badge-neutral' }
                       return (
@@ -1083,9 +1089,9 @@ function DocModal({
                         </div>
                       )
                     })}
-                  </div>
+                  </div>}
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </>

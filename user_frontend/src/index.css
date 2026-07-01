@@ -650,6 +650,7 @@ input, textarea, select { font-family: inherit; }
 }
 
 .doc-category-header {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -658,7 +659,16 @@ input, textarea, select { font-family: inherit; }
   color: var(--text-2);
   font-size: 12px;
   font-weight: 600;
+  font-family: inherit;
+  border: none;
+  cursor: pointer;
+  text-align: left;
 }
+
+.doc-category-header:hover { background: var(--bg-3); }
+
+.doc-category-title { display: flex; align-items: center; gap: 5px; }
+.doc-category-title svg { width: 13px; height: 13px; flex-shrink: 0; }
 
 .doc-category-header span:last-child {
   color: var(--text-3);
@@ -669,6 +679,16 @@ input, textarea, select { font-family: inherit; }
 .doc-category-group > div:last-child {
   padding: 6px;
 }
+
+.doc-list-scroll {
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 3px;
+  overscroll-behavior: contain;
+}
+
+.doc-list-scroll::-webkit-scrollbar { width: 5px; }
+.doc-list-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
 /* ── Knowledge panel ────────────────────────────────────────────────────── */
 .knowledge-panel {
