@@ -46,7 +46,7 @@ def upgrade() -> None:
     op.create_index("ix_users_username", "users", ["username"], unique=True)
     op.create_index("ix_users_email", "users", ["email"], unique=True)
 
-    # 插入 super_admin 初始账号（密码：PPTAdmin@2024，首次登录后请修改）
+    # 插入 super_admin 初始账号（密码：PPTAdmin@2026，首次登录后请修改）
     op.execute(
         f"INSERT INTO users (username, email, is_email_verified, password_hash, is_active, role) "
         f"VALUES ('{_SUPER_ADMIN_USERNAME}', NULL, false, '{_SUPER_ADMIN_HASH}', true, 'super_admin')"
