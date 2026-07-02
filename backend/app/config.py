@@ -9,7 +9,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # 本地开发默认读取可提交的 .env.dev；私有 .env（若存在）具有更高优先级。
+        env_file=(".env.dev", ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
